@@ -490,6 +490,12 @@
     const c = currentCoach();
     return !c || !c.role || c.role === "admin";
   }
+  /* 抗遗忘助手：只有「督学管理 → 抗遗忘」一个功能，且看全部学员的抗遗忘记录 */
+  function isMemoryAssistant() {
+    const c = currentCoach();
+    return !!(c && c.role === "memory");
+  }
+  const MEMORY_ONLY_ROUTES = ["review", "anti"];
   function adminCount() {
     return (S.coaches || []).filter((c) => !c.role || c.role === "admin").length;
   }
@@ -520,7 +526,7 @@
   }
   function visibleReviews() {
     const all = (S.reviews || []).filter((r) => (S.records || []).some((x) => x.id === r.recordId));
-    if (isAdmin()) return all;
+    if (isAdmin() || isMemoryAssistant()) return all;
     const me = (S.user && S.user.name) || "";
     return all.filter((r) => (r.coach || "Diana") === me);
   }
@@ -545,8 +551,12 @@
   }
   function applyNavRole() {
     const admin = isAdmin();
+    const memory = isMemoryAssistant();
+    if (memory) navSuperviseOpen = true;
     $$("#tabbar .tab").forEach(function (b) {
-      const allowed = admin || ADMIN_ONLY_NAV.indexOf(b.dataset.nav) < 0;
+      const allowed = memory
+        ? b.dataset.nav === "review" || b.dataset.navParent === "supervise"
+        : admin || ADMIN_ONLY_NAV.indexOf(b.dataset.nav) < 0;
       b.style.display = allowed ? "" : "none";
     });
   }
@@ -1707,7 +1717,9 @@
         (c.joinedAt ? " · " + c.joinedAt : "") + "</small></div>" +
         ((!c.role || c.role === "admin")
           ? '<span class="badge done">管理员</span>'
-          : '<span class="badge wait">教练</span>') +
+          : c.role === "memory"
+            ? '<span class="badge wait">抗遗忘助手</span>'
+            : '<span class="badge wait">教练</span>') +
         (S.user && S.user.name === c.name ? '<span class="badge done">当前登录</span>' : "") + "</div>" +
         '<div class="mgmt-ops">' +
         '<button class="btn" data-action="coach-edit" data-id="' + esc(c.name) + '">编辑</button>' +
@@ -1726,7 +1738,7 @@
   }
   function openCoachForm(name) {
     const c = name ? (S.coaches || []).find((x) => x.name === name) : null;
-    const role = c ? (c.role === "coach" ? "coach" : "admin") : "coach";
+    const role = c ? (c.role === "memory" ? "memory" : c.role === "coach" ? "coach" : "admin") : "coach";
     openModal(
       '<div class="modal-head">' + (c ? "编辑教练" : "新增教练") + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body">' +
@@ -1734,7 +1746,8 @@
       '<div class="field"><label>登录密码 *</label><input id="coPass" value="' + esc(c ? c.pass : "") + '" /></div>' +
       '<div class="field"><label>账号类型 *</label><select id="coRole">' +
       '<option value="coach"' + (role === "coach" ? " selected" : "") + ">教练账号（只能用：课表信息 / 销课记录 / 用户信息）</option>" +
-      '<option value="admin"' + (role === "admin" ? " selected" : "") + ">管理员账号（全部功能）</option>" +
+      '<option value="memory"' + (role === "memory" ? " selected" : "") + ">抗遗忘助手账号</option>" +
+      '<option value="admin"' + (role === "admin" ? " selected" : "") + ">管理员账号</option>" +
       "</select></div>" +
       "</div>" +
       '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
@@ -1747,7 +1760,8 @@
     const coRole = document.getElementById("coRole");
     const name = coName ? coName.value.trim() : "";
     const pass = coPass ? coPass.value.trim() : "";
-    const role = coRole && coRole.value === "coach" ? "coach" : "admin";
+    const picked = coRole ? coRole.value : "coach";
+    const role = picked === "coach" || picked === "memory" ? picked : "admin";
     if (!name) { toast("请填写教练姓名"); return; }
     if (!pass) { toast("请填写登录密码"); return; }
     S.coaches = S.coaches || [];
@@ -1972,7 +1986,9 @@
 
   /* ---------------- 渲染 ---------------- */
   function render() {
-    if (!isAdmin() && ADMIN_ONLY_ROUTES.indexOf(route.name) >= 0) {
+    if (isMemoryAssistant()) {
+      if (MEMORY_ONLY_ROUTES.indexOf(route.name) < 0) route.name = "review";
+    } else if (!isAdmin() && ADMIN_ONLY_ROUTES.indexOf(route.name) >= 0) {
       route.name = "schedule";
       route.day = todayKey();
     }
