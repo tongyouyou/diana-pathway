@@ -1859,7 +1859,7 @@
       libSelect("libKind", COURSE_KINDS, libFilter.kind, "课程类型") +
       "</div></div>" +
       '<div class="section-title" style="margin-top:0" id="libCount">' + libCountText(list) + "</div>" +
-      '<div class="cards" id="libList">' + libCardsHtml(list) + "</div>" +
+      '<div id="libList">' + libCardsHtml(list) + "</div>" +
       '<div class="card" style="margin-top:12px"><div style="font-size:13px;color:var(--muted);line-height:1.9">' +
       "「创建词库」= 上传或粘贴单词表。每行一个单词，支持：<br>" +
       "<b>英文,音标,中文</b>（如 <code>room,/ruːm/,房间</code>）· <b>英文,中文</b> · 只写 <b>英文</b>；" +
