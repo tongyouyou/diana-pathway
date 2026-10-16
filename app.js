@@ -819,15 +819,25 @@
     );
   }
 
-  /* ---------------- 选择词库（该学员已开通） ---------------- */
+  /* ---------------- 体验课词库（不指定学员，所有学员上体验课时都能打开） ---------------- */
+  function trialCourses() {
+    return (S.courses || []).filter((c) => c.trial);
+  }
+  function classIsTrial(classId) {
+    const c = (S.classes || []).find((x) => x.id === classId);
+    return !!(c && c.type === "试听");
+  }
+
+  /* ---------------- 选择词库（体验课 → 体验课词库；60 分钟 → 该学员已开通） ---------------- */
   function viewTeach() {
     const stu = pending ? studentById(pending.studentId) : null;
     if (!stu) {
       return '<div class="card"><div class="empty">请从「排课」里点某个学员的「上课」进入</div></div>';
     }
-    const ids = stu.courses || [];
-    const cards = ids.length
-      ? ids.map(courseById).filter(Boolean).map(function (c) {
+    const isTrial = !!(pending && classIsTrial(pending.classId));
+    const list = isTrial ? trialCourses() : (stu.courses || []).map(courseById).filter(Boolean);
+    const cards = list.length
+      ? list.map(function (c) {
           const learned = learnedCount(stu.id, c.id);
           return (
             '<div class="card"><div class="course-card">' +
@@ -838,10 +848,16 @@
             "</div></div>"
           );
         }).join("")
-      : '<div class="card"><div class="empty">该学员还没有开通词库，请到「学员 → 课程开通」里添加</div></div>';
+      : (isTrial
+          ? '<div class="card"><div class="empty">还没有体验课词库，请让管理员到「词库信息」里导入</div></div>'
+          : '<div class="card"><div class="empty">该学员还没有开通词库，请到「学员 → 课程开通」里添加</div></div>');
     return (
-      pageHead("为 " + stu.name + " 选择词库",
+      pageHead(isTrial ? stu.name + " · 体验课词库" : "为 " + stu.name + " 选择词库",
         '<button class="btn btn-ghost" data-action="teach-exit">返回课表</button>') +
+      (isTrial
+        ? '<div class="card" style="margin-bottom:12px"><div style="font-size:13px;color:var(--muted);line-height:1.8">' +
+          "体验课词库对<b>所有学员</b>开放，不指定学员；上 60 分钟课时不会出现。</div></div>"
+        : "") +
       '<div class="cards">' + cards + "</div>"
     );
   }
@@ -1525,8 +1541,8 @@
       return (
         '<div class="card"><div class="course-card">' +
         '<div class="ci">' + esc(c.name.slice(0, 2)) + "</div>" +
-        '<div class="cm"><b>' + esc(c.name) + "</b>" +
-        "<small>共 " + n + " 个单词 · " + opened + " 名学员已开通" +
+        '<div class="cm"><b>' + esc(c.name) + (c.trial ? ' <span class="badge wait">体验课</span>' : "") + "</b>" +
+        "<small>共 " + n + " 个单词 · " + (c.trial ? "体验课专用 · 所有学员可用" : opened + " 名学员已开通") +
         (c.createdAt ? " · " + c.createdAt : "") + "</small></div>" +
         '<div style="display:flex;gap:6px;flex:none">' +
         '<button class="btn" data-action="lib-view" data-id="' + c.id + '">查看</button>' +
@@ -2176,12 +2192,15 @@
     const s = studentById(id);
     if (!s) return;
     grantDraft = (s.courses || []).slice();
-    const rows = S.courses.map(function (c) {
+    const grantable = S.courses.filter((c) => !c.trial);
+    const rows = grantable.length
+      ? grantable.map(function (c) {
       const on = grantDraft.indexOf(c.id) >= 0;
       return '<div class="chk-row" data-action="grant-toggle" data-id="' + c.id + '">' +
         '<span class="chk ' + (on ? "on" : "") + '">✓</span>' +
         '<div class="cm"><b>' + esc(c.name) + "</b><small>共 " + courseSize(c) + " 词 · 已学 " + learnedCount(s.id, c.id) + "</small></div></div>";
-    }).join("");
+    }).join("")
+      : '<div class="empty">没有可开通的词库（体验课词库对所有学员开放，不需要在这里开通）</div>';
     openModal(
       '<div class="modal-head">课程开通 · ' + esc(s.name) + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body"><p style="color:var(--muted);font-size:12.5px;margin:0 0 8px">勾选要给该学员开通的词库（自建词库稍后可上传）。</p>' +
