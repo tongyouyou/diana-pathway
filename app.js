@@ -869,6 +869,14 @@
     if (status === "已完成") return '<span class="badge done">已下课</span>';
     return '<span class="badge wait">待上课</span>';
   }
+  /* 过期：还没上、日期已经过了的课 */
+  function isExpiredClass(c) {
+    return !!c && c.status !== "已完成" && (c.date || "") < todayKey();
+  }
+  function classStatusBadge(c) {
+    if (isExpiredClass(c)) return '<span class="badge live">过期</span>';
+    return statusBadge(c.status);
+  }
   function classCard(c, showDate) {
     const stu = studentById(c.studentId);
     const type = typeByKey(c.type);
@@ -894,6 +902,7 @@
       '<div class="sc-bottom">' +
       '<b class="sc-stu">' + (stu ? esc(stu.name) : "未知学员") + "</b>" +
       '<span class="sc-pill">' + type.label + "</span>" +
+      (isExpiredClass(c) ? '<span class="badge live">过期</span>' : "") +
       '<span class="sc-coach">' + esc(coach) + "</span>" +
       "</div></div></div>"
     );
@@ -1653,7 +1662,7 @@
           end.setHours(+hh[0], (+hh[1]) + type.min, 0, 0);
           const endStr = pad2(end.getHours()) + ":" + pad2(end.getMinutes());
           const coach = c.coach || (S.user && S.user.name) || "Diana";
-          const badge = statusBadge(c.status);
+          const badge = classStatusBadge(c);
           return (
             '<div class="tbl-row">' +
             '<div class="c-idx">' + (i + 1) + "</div>" +
@@ -1741,7 +1750,7 @@
       const c = x.c;
       const n = courseSize(c);
       const opened = S.students.filter((s) => (s.courses || []).indexOf(c.id) >= 0).length;
-      const canDel = isRealAdmin() || !c.createdBy || c.createdBy === meName();
+      const canDel = isRealAdmin();
       return (
         '<div class="card"><div class="course-card">' +
         '<div class="ci">' + esc(c.name.slice(0, 2)) + "</div>" +
@@ -1848,10 +1857,7 @@
   function removeCourse(id) {
     const c = courseById(id);
     if (!c) return;
-    if (!isRealAdmin() && c.createdBy && c.createdBy !== meName()) {
-      toast("这是别人上传的词库，只有管理员能删除");
-      return;
-    }
+    if (!isRealAdmin()) { toast("只有管理员可以删除词库"); return; }
     const used = S.students.filter((s) => (s.courses || []).indexOf(id) >= 0).length;
     if (!confirm("确定删除词库「" + c.name + "」吗？" + (used ? "有 " + used + " 名学员已开通，会一并取消。" : ""))) return;
     S.courses = S.courses.filter((x) => x.id !== id);
@@ -2371,7 +2377,7 @@
       '<div class="modal-body">' +
       '<div class="field"><label>学员</label><select id="fStudent">' + studentOptions(stuId) + "</select></div>" +
       '<div class="field"><label>教练</label><select id="fCoach">' + coachOptions(coachDefault) + "</select></div>" +
-      '<div class="field"><label>日期</label><input type="date" id="fDate" value="' + date + '" /></div>' +
+      '<div class="field"><label>日期</label><input type="date" id="fDate" min="' + todayKey() + '" value="' + date + '" /></div>' +
       '<div class="field"><label>开始时间</label><input type="time" id="fTime" value="' + time + '" /></div>' +
       '<div class="field"><label>课程时长</label><div class="seg" id="fType">' +
       TYPES.map((t) => '<button type="button" class="' + (t.key === typeKey ? "is-active" : "") + '" data-seg="1" data-type="' + t.key + '">' + t.label + "</button>").join("") +
@@ -2387,6 +2393,7 @@
     const typeEl = $("#fType .is-active");
     const subjEl = $("#fSubject .is-active");
     const date = $("#fDate").value || route.day;
+    if (date < todayKey()) { toast("只能排今天或以后的课，不能排过去的日期"); return; }
     const patch = {
       studentId: $("#fStudent").value,
       coach: $("#fCoach") ? $("#fCoach").value : ((S.user && S.user.name) || "Diana"),
