@@ -1044,7 +1044,7 @@
     pending = null;
     route.name = "schedule";
     render();
-    toast("教学练习结束（不会生成记录）");
+    toast("教学练习结束");
   }
   function classIsTrial(classId) {
     const c = (S.classes || []).find((x) => x.id === classId);
