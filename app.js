@@ -40,7 +40,7 @@
   const SUBJECT_ALL = SUBJECTS.concat(["全部"]);
   const TYPES = [
     { key: "60", label: "60分钟", min: 60 },
-    { key: "试听", label: "体验课", min: 30 },
+    { key: "试听", label: "体验课", min: 60 },
   ];
   const typeByKey = (k) => TYPES.find((t) => t.key === k) || TYPES[0];
   /* 抗遗忘（21 天计划，共 10 次）：课后第 1、2、3、5、7、10、13、16、19、21 天，先密后疏 */
@@ -853,24 +853,27 @@
   function classCard(c, showDate) {
     const stu = studentById(c.studentId);
     const type = typeByKey(c.type);
-    const badge = statusBadge(c.status);
     const coach = c.coach || (S.user && S.user.name) || "Diana";
     const hh = (c.time || "16:00").split(":");
     const end = new Date();
     end.setHours(+hh[0], (+hh[1]) + type.min, 0, 0);
     const endStr = pad2(end.getHours()) + ":" + pad2(end.getMinutes());
+    const clock = '<svg class="sc-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.4V12l3 1.8"/></svg>';
     return (
-      '<div class="card"><div class="class-card">' +
-      '<div class="cc-main">' +
-      '<div class="cc-time">' + (showDate ? "<em>" + esc(c.date.slice(5)) + "</em>" : "") +
-      "<b>" + esc(c.time) + "–" + endStr + "</b><span>" + type.label + "</span></div>" +
-      '<div class="cc-stu">' + (stu ? esc(stu.name) : "未知学员") + badge + "</div>" +
-      '<div class="cc-coach">教练：' + esc(coach) + "</div></div>" +
-      '<div class="class-actions">' +
+      '<div class="card"><div class="sched-card">' +
+      '<div class="sc-top">' +
+      '<div class="sc-time">' + clock + "<b>" + esc(c.time) + "–" + endStr + "</b>" +
+      (showDate ? "<em>" + esc(c.date.slice(5)) + "</em>" : "") + "</div>" +
+      '<div class="sc-actions">' +
       '<button class="btn" data-action="class-prep" data-id="' + c.id + '">备课</button>' +
       (c.status !== "已完成"
         ? '<button class="btn btn-primary" data-action="start-class" data-id="' + c.id + '">上课</button>'
         : '<button class="btn btn-ghost" disabled>已下课</button>') +
+      "</div></div>" +
+      '<div class="sc-bottom">' +
+      '<b class="sc-stu">' + (stu ? esc(stu.name) : "未知学员") + "</b>" +
+      '<span class="sc-pill">' + type.label + "</span>" +
+      '<span class="sc-coach">' + esc(coach) + "</span>" +
       "</div></div></div>"
     );
   }

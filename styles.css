@@ -236,11 +236,19 @@ body {
 .day.has-class .dot { opacity: 1; transform: scale(1); }
 .day.is-active .dot { background: #fff; }
 
-/* 课表列表：方方的小卡，自动铺满 */
-.sched-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 12px; }
+/* 课表列表：和控制台上方卡片同款，自动铺满 */
+.sched-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 .sched-item { animation: schedIn .32s cubic-bezier(.4, 0, .2, 1) both; }
 @keyframes schedIn { from { opacity: 0; transform: translateY(10px); } }
-.sched-item .card { margin-top: 0 !important; min-height: 170px; display: flex; align-items: center; }
+.sched-item .card {
+  position: relative; overflow: hidden; margin-top: 0 !important;
+  border: 1px solid #eef0f6; border-radius: 16px; padding: 16px 20px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 8px 24px rgba(16, 24, 40, .05);
+}
+.sched-item .card::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: linear-gradient(180deg, var(--brand), var(--brand-2));
+}
 
 /* ============ 学科标签 ============ */
 .subjects { display: flex; gap: 8px; overflow-x: auto; padding: 2px; margin: 14px 0 4px; }
@@ -253,14 +261,22 @@ body {
 .subj.is-active { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: #fff; }
 
 /* ============ 课表项 ============ */
+.sched-card { display: flex; flex-direction: column; gap: 12px; }
+.sc-top { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
+.sc-time { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sc-time b { font-size: 15px; font-weight: 700; color: #101828; transition: color .18s; }
+.sc-time em { font-style: normal; font-size: 11px; color: var(--muted); font-weight: 600; }
+.sc-clock { width: 15px; height: 15px; flex: none; color: var(--brand); }
+.sc-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.sc-actions .btn { padding: 7px 14px; font-size: 12.5px; white-space: nowrap; }
+.sc-bottom { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sc-stu { font-size: 16px; font-weight: 700; color: #101828; }
+.sc-pill {
+  font-size: 11.5px; font-weight: 600; padding: 3px 8px; border-radius: 7px;
+  background: var(--brand-soft); color: var(--brand);
+}
+.sc-coach { font-size: 12.5px; color: var(--muted); }
 .class-card { display: flex; gap: 10px; align-items: stretch; width: 100%; }
-.cc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; justify-content: center; }
-.cc-time { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
-.cc-time b { font-size: 15.5px; letter-spacing: .2px; transition: color .18s; }
-.cc-time span { font-size: 11px; color: var(--muted); }
-.cc-time em { font-style: normal; font-size: 10.5px; color: var(--muted); font-weight: 600; }
-.cc-stu { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 16px; min-width: 0; }
-.cc-coach { font-size: 12px; color: var(--muted); }
 .class-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .class-main .who { display: flex; align-items: center; justify-content: center; gap: 7px; font-weight: 700; font-size: 15px; }
 .avatar {
