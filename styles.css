@@ -181,6 +181,13 @@ body {
 .tbl-row .c-ops { display: flex; gap: 6px; }
 .tbl-row .c-ops .btn { padding: 5px 11px; font-size: 12.5px; }
 
+/* 销课记录：横向可滚动 */
+.tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tbl-scroll .tbl { min-width: 880px; }
+.tbl.rec-tbl .tbl-head, .tbl.rec-tbl .tbl-row {
+  grid-template-columns: 64px minmax(110px, 1fr) 96px minmax(150px, 1.3fr) 148px 148px 90px 116px;
+}
+
 .card {
   background: var(--card);
   border-radius: var(--radius);
@@ -262,7 +269,7 @@ body {
 
 /* ============ 课表项 ============ */
 .sched-card { display: flex; flex-direction: column; gap: 12px; }
-.sc-top { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
+.sc-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .sc-time { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .sc-time b { font-size: 15px; font-weight: 700; color: #101828; transition: color .18s; }
 .sc-time em { font-style: normal; font-size: 11px; color: var(--muted); font-weight: 600; }

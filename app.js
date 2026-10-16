@@ -522,16 +522,6 @@
   function adminCount() {
     return (S.coaches || []).filter((c) => !c.role || c.role === "admin").length;
   }
-  /* 这节排课的课时算在哪个教练头上（学员所属教练；学员不归任何教练就看上课教练） */
-  function chargeTargetName(stu, classCoach) {
-    let co = stu && stu.owner ? coachByName(stu.owner) : null;
-    if (!co || co.role !== "teacher") co = classCoach ? coachByName(classCoach) : null;
-    return (co && co.role === "teacher") ? co.name : "";
-  }
-  function coachHoursLeft(name) {
-    const co = name ? coachByName(name) : null;
-    return (co && co.role === "teacher") ? (co.hours || 0) : null;
-  }
   /* 账号状态：正常 / 待审核 / 禁用（教练提交的助教需要管理员审核） */
   const coachStatus = (c) => (c && c.status) || "正常";
   function canManageCoach(c) {
@@ -1287,6 +1277,7 @@
         student: stu ? stu.name : "学员", course: courseName(lesson.courseId), courseId: lesson.courseId,
         type: type.label, subject: "单词带背",
         coach: (cls && cls.coach) || (S.user && S.user.name) || "Diana",
+        time: (cls && cls.time) || "",
         correct: words.length, total: words.length,
         words: words.map((w) => ({ w: w.w, ph: w.ph, m: w.m })),
         minutes: type.min,
@@ -1570,6 +1561,7 @@
         student: stu ? stu.name : "学员", course: courseName(lesson.courseId), courseId: lesson.courseId,
         type: type.label, subject: "单词带背",
         coach: (cls && cls.coach) || (S.user && S.user.name) || "Diana",
+        time: (cls && cls.time) || "",
         correct: words.length - wrong.length, total: words.length,
         words: words.map((w) => ({ w: w.w, ph: w.ph, m: w.m })),
         minutes: type.min,
@@ -2020,12 +2012,18 @@
     const cTrial = all.filter((r) => r.type === "体验课").length;
     const list = all;
     const rows = list.length
-      ? list.map(function (r) {
-          const rate = r.total ? Math.round((r.correct / r.total) * 100) : 0;
-          return '<div class="list-item"><div class="li-main"><b>' + esc(r.student) + " · " + esc(r.course || r.subject) +
-            "</b><small>" + r.date + " · " + esc(r.type) + " · 正确率 " + rate + '%</small></div><span class="li-h">' +
-            (r.minutes || 0) + "′</span>" +
-            '<button class="btn" style="margin-left:12px;padding:6px 12px;font-size:12.5px" data-action="rec-words" data-id="' + r.id + '">导出</button></div>';
+      ? list.map(function (r, i) {
+          const endStr = recEndTime(r);
+          return '<div class="tbl-row rec-row">' +
+            '<div class="c-idx">' + (i + 1) + "</div>" +
+            '<div class="c-stu">' + esc(r.student || "") + "</div>" +
+            '<div><span class="tag' + (r.type === "体验课" ? " gray" : "") + '">' + esc(r.type || "") + "</span></div>" +
+            '<div class="c-course">' + esc(r.course || r.subject || "") + "</div>" +
+            "<div>" + (r.time ? esc(r.date + " " + r.time) : "—") + "</div>" +
+            "<div>" + (endStr ? esc(r.date + " " + endStr) : "—") + "</div>" +
+            "<div>" + esc(r.coach || "") + "</div>" +
+            '<div class="c-ops"><button class="btn" data-action="rec-words" data-id="' + r.id + '">课后打印</button></div>' +
+            "</div>";
         }).join("")
       : '<div class="empty">还没有销课记录，上完课会自动生成</div>';
     return (
@@ -2036,8 +2034,19 @@
       '<div class="stat"><b>' + cTrial + "</b><span>体验课</span></div>" +
       '<div class="stat"><b>' + all.length + "</b><span>上课总次数</span></div></div></div>" +
       '<div class="section-title">共 ' + list.length + ' 条</div>' +
-      '<div class="card">' + rows + "</div>"
+      '<div class="tbl-scroll"><div class="tbl rec-tbl">' +
+      '<div class="tbl-head rec-row"><div>序号</div><div>学员</div><div>课时类型</div><div>词库</div>' +
+      "<div>上课时间</div><div>下课时间</div><div>教练</div><div>课后打印</div></div>" +
+      '<div class="tbl-body">' + rows + "</div></div></div>"
     );
+  }
+  /* 销课记录的下课时间 = 上课时间 + 时长 */
+  function recEndTime(r) {
+    if (!r || !r.time) return "";
+    const hh = String(r.time).split(":");
+    if (hh.length < 2) return "";
+    const min = (+hh[0]) * 60 + (+hh[1]) + (r.minutes || 60);
+    return pad2(Math.floor(min / 60) % 24) + ":" + pad2(min % 60);
   }
 
   /* ---------------- 抗遗忘（督学管理） ---------------- */
@@ -2296,13 +2305,8 @@
         const oldStudentId = c.studentId;
         const stuNew = studentById(patch.studentId);
         if (c.status !== "已完成") {
-          const target = chargeTargetName(stuNew, patch.coach);
-          if (target && coachHoursLeft(target) <= 0) {
-            toast(target + " 的课时已用完，请先充值再排课");
-            return;
-          }
           if (oldStudentId !== patch.studentId) {
-            if (!stuNew || (stuNew.hours || 0) <= 0) { toast("该学员课时已用完，请先充值"); return; }
+            if (!stuNew || (stuNew.hours || 0) <= 0) { toast("该学员课时已用完，请先充值或删除占课时的排课"); return; }
             if (c.occupied) refundStudentHour(studentById(oldStudentId));
             occupyStudentHour(stuNew);
             c.occupied = true;
@@ -2323,13 +2327,11 @@
       /* 学员课时为 0 不能排课；教练课时为 0 也不能排课 */
       const stu0 = studentById(cls.studentId);
       if (!stu0) { toast("请选择学员"); return; }
-      const target = chargeTargetName(stu0, cls.coach);
-      if (target && coachHoursLeft(target) <= 0) {
-        toast(target + " 的课时已用完，请先充值再排课");
-        return;
-      }
       if ((stu0.hours || 0) <= 0) {
-        toast(stu0.name + " 的课时已用完，请先充值再排课");
+        const pending = (S.classes || []).filter((x) => x.studentId === stu0.id && x.status !== "已完成").length;
+        toast(pending
+          ? stu0.name + " 课时已用完，还有 " + pending + " 节没上的排课占着课时：请先删除排课释放课时，或先给学员充值"
+          : stu0.name + " 的课时已用完，请先给学员充值");
         return;
       }
       /* 一排课就把学员的 1 节课时占上（60分钟课、体验课都占） */
