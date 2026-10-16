@@ -43,8 +43,8 @@
     { key: "试听", label: "体验课", min: 30 },
   ];
   const typeByKey = (k) => TYPES.find((t) => t.key === k) || TYPES[0];
-  /* 抗遗忘：课后第 1/2/3 天连续复习，第 4 次与第 3 次隔一天，第 5 次再隔一天 */
-  const ANTI_OFFSETS = [1, 2, 3, 5, 7];
+  /* 抗遗忘（21 天计划，共 10 次）：课后第 1、2、3、5、7、10、13、16、19、21 天，先密后疏 */
+  const ANTI_OFFSETS = [1, 2, 3, 5, 7, 10, 13, 16, 19, 21];
   const GRADES = ["一年级", "二年级", "三年级", "四年级", "五年级", "六年级", "初一", "初二", "初三", "高一", "高二", "高三"];
   const MIX_AFTER = { 1: [0, 1], 2: [0, 1, 2], 4: [3, 4], 5: [3, 4, 5] }; // 0-based：第2/3/5/6组后
 
@@ -538,7 +538,7 @@
     d.setDate(d.getDate() + n);
     return ymd(d);
   }
-  /* 销课后自动生成 5 次抗遗忘复习 */
+  /* 销课后自动生成 10 次抗遗忘复习（21 天计划） */
   function createAntiReviews(rec) {
     S.reviews = S.reviews || [];
     ANTI_OFFSETS.forEach(function (off, i) {
