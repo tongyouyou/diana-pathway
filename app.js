@@ -870,6 +870,24 @@
       else b.removeAttribute("title");
     });
   }
+  /* 上课 / 教学练习期间：左侧导航自动收起，只留小图标；下课后自动恢复成上课前的样子。
+     课上如果自己点了 ☰ 打开导航，就尊重她的操作，不再自动收起。 */
+  const TEACH_ROUTES = ["teach", "course", "lesson", "practice"];
+  let prevRouteForSidebar = null;
+  let sidebarBeforeLesson = null;
+  function syncLessonSidebar() {
+    const nowTeach = TEACH_ROUTES.indexOf(route.name) >= 0;
+    const wasTeach = !!prevRouteForSidebar && TEACH_ROUTES.indexOf(prevRouteForSidebar) >= 0;
+    if (nowTeach && !wasTeach) {
+      sidebarBeforeLesson = !!S.sidebarCollapsed;
+      if (!S.sidebarCollapsed) { S.sidebarCollapsed = true; saveState(); }
+    } else if (!nowTeach && wasTeach) {
+      const back = sidebarBeforeLesson === true;
+      sidebarBeforeLesson = null;
+      if (!!S.sidebarCollapsed !== back) { S.sidebarCollapsed = back; saveState(); }
+    }
+    prevRouteForSidebar = route.name;
+  }
   let voiceGB = null;
   function pickVoice() {
     try {
@@ -2546,6 +2564,7 @@
       route.name = "schedule";
       route.day = todayKey();
     }
+    syncLessonSidebar();
     const v = document.getElementById("view");
     const keepTop = (v.dataset.vkey === vk) ? v.scrollTop : 0;
     if (route.name === "dashboard") v.innerHTML = viewDashboard();
