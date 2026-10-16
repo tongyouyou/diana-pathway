@@ -42,6 +42,10 @@
     { key: "60", label: "60分钟", min: 60 },
     { key: "试听", label: "体验课", min: 60 },
   ];
+  /* 词库分类（用于词库信息里的搜索） */
+  const COURSE_BOOKS = ["人教版", "译林版", "外研版", "剑桥版", "通用版", "其他"];
+  const COURSE_STAGES = ["小学", "初中", "高中", "大学", "其他"];
+  const COURSE_KINDS = ["词库", "短语", "体验课", "其他"];
   const typeByKey = (k) => TYPES.find((t) => t.key === k) || TYPES[0];
   /* 抗遗忘（21 天计划，共 10 次）：课后第 1、2、3、5、7、10、13、16、19、21 天，先密后疏 */
   const ANTI_OFFSETS = [1, 2, 3, 5, 7, 10, 13, 16, 19, 21];
@@ -272,6 +276,7 @@
   let currentCourseStudentId = null;
   let currentStudentId = null;
   let stuSearch = "";
+  let libFilter = { kw: "", book: "", stage: "", kind: "" };
   let navSuperviseOpen = false;
   let grantDraft = [];
   let breakTimer = null;
@@ -345,6 +350,28 @@
     return set;
   }
   const learnedCount = (studentId, courseId) => Object.keys(learnedSet(studentId, courseId)).length;
+  /* 词库分类：建库时填过就用填的，没填过就按名字猜一个（方便搜索） */
+  function courseMeta(c) {
+    if (!c) return { book: "其他", stage: "其他", kind: "其他" };
+    if (c.book || c.stage || c.kind) {
+      return { book: c.book || "其他", stage: c.stage || "其他", kind: c.kind || (c.trial ? "体验课" : "词库") };
+    }
+    const n = c.name || "";
+    let book = "其他";
+    if (/人教版|人教/.test(n)) book = "人教版";
+    else if (/译林/.test(n)) book = "译林版";
+    else if (/外研/.test(n)) book = "外研版";
+    else if (/剑桥/.test(n)) book = "剑桥版";
+    else if (/通用版|考纲|高频|同义词|688/.test(n)) book = "通用版";
+    let stage = "其他";
+    if (/小学|一年级|二年级|三年级|四年级|五年级|六年级|一起点|三起点/.test(n)) stage = "小学";
+    else if (/高中|必修|选修|高考/.test(n)) stage = "高中";
+    else if (/初中|七年级|八年级|九年级|中考/.test(n)) stage = "初中";
+    else if (/雅思|托福|大学/.test(n)) stage = "大学";
+    let kind = c.trial ? "体验课" : "词库";
+    if (/短语/.test(n)) kind = "短语";
+    return { book: book, stage: stage, kind: kind };
+  }
   const courseStudent = () => studentById(pending ? pending.studentId : currentCourseStudentId);
 
   function toast(msg) {
@@ -496,8 +523,9 @@
   const ADMIN_ONLY_ROUTES = ["dashboard", "library", "coaches"];
   const ADMIN_ONLY_NAV = ["dashboard", "library", "coaches"];
   /* 机构共用、只给管理员动的（教练也不行）：词库信息 */
-  const REAL_ADMIN_ONLY_ROUTES = ["library"];
-  const REAL_ADMIN_ONLY_NAV = ["library"];
+  /* 词库信息已对所有教练开放，这两个列表留空 */
+  const REAL_ADMIN_ONLY_ROUTES = [];
+  const REAL_ADMIN_ONLY_NAV = [];
   function ensureRoles() {
     let changed = false;
     (S.coaches || []).forEach((c) => { if (!c.role) { c.role = "admin"; changed = true; } });
@@ -1657,39 +1685,88 @@
 
   /* ---------------- 学员 ---------------- */
   function viewLibrary() {
-    const cards = S.courses.map(function (c) {
+    const list = libFiltered();
+    return (
+      pageHead("词库信息",
+        '<button class="btn btn-primary" data-action="lib-new">＋ 创建词库</button>') +
+      '<div class="card" style="margin-bottom:12px"><div class="lib-search">' +
+      '<input id="libKw" class="input" placeholder="搜索词库名称" value="' + esc(libFilter.kw) + '" />' +
+      libSelect("libBook", COURSE_BOOKS, libFilter.book, "教材版本") +
+      libSelect("libStage", COURSE_STAGES, libFilter.stage, "学段") +
+      libSelect("libKind", COURSE_KINDS, libFilter.kind, "课程类型") +
+      "</div></div>" +
+      '<div class="section-title" style="margin-top:0" id="libCount">' + libCountText(list) + "</div>" +
+      '<div class="cards" id="libList">' + libCardsHtml(list) + "</div>" +
+      '<div class="card" style="margin-top:12px"><div style="font-size:13px;color:var(--muted);line-height:1.9">' +
+      "「创建词库」= 上传或粘贴单词表。每行一个单词，支持：<br>" +
+      "<b>英文,音标,中文</b>（如 <code>room,/ruːm/,房间</code>）· <b>英文,中文</b> · 只写 <b>英文</b>；" +
+      "分隔符可用逗号 / 制表符 / 中文逗号。<br>创建的词库<b>全机构共用</b>，其他人也能在排课和上课时使用。</div></div>"
+    );
+  }
+  function libSelect(id, arr, cur, allLabel) {
+    return '<select id="' + id + '" class="input">' +
+      '<option value="">' + allLabel + "：全部</option>" +
+      arr.map((v) => '<option value="' + v + '"' + (cur === v ? " selected" : "") + ">" + v + "</option>").join("") +
+      "</select>";
+  }
+  function libFiltered() {
+    const f = libFilter;
+    return S.courses.map((c) => ({ c: c, m: courseMeta(c) })).filter(function (x) {
+      if (f.kw && x.c.name.indexOf(f.kw) < 0) return false;
+      if (f.book && x.m.book !== f.book) return false;
+      if (f.stage && x.m.stage !== f.stage) return false;
+      if (f.kind && x.m.kind !== f.kind) return false;
+      return true;
+    });
+  }
+  function libCountText(list) {
+    return "词库 · 共 " + list.length + " 个" +
+      (list.length === S.courses.length ? "" : "（全部 " + S.courses.length + " 个）");
+  }
+  function libCardsHtml(list) {
+    if (!list.length) {
+      return '<div class="card"><div class="empty">' +
+        (S.courses.length ? "没有符合条件的词库，换个条件试试" : "还没有词库，点右上角「＋ 创建词库」上传") + "</div></div>";
+    }
+    return list.map(function (x) {
+      const c = x.c;
       const n = courseSize(c);
       const opened = S.students.filter((s) => (s.courses || []).indexOf(c.id) >= 0).length;
+      const canDel = isRealAdmin() || !c.createdBy || c.createdBy === meName();
       return (
         '<div class="card"><div class="course-card">' +
         '<div class="ci">' + esc(c.name.slice(0, 2)) + "</div>" +
         '<div class="cm"><b>' + esc(c.name) + (c.trial ? ' <span class="badge wait">体验课</span>' : "") + "</b>" +
-        "<small>共 " + n + " 个单词 · " + (c.trial ? "体验课专用 · 所有学员可用" : opened + " 名学员已开通") +
+        "<small>" + esc(x.m.book) + " · " + esc(x.m.stage) + " · " + esc(x.m.kind) +
+        " · 共 " + n + " 个单词 · " + (c.trial ? "体验课专用 · 所有学员可用" : opened + " 名学员已开通") +
+        (c.createdBy ? " · 由 " + esc(c.createdBy) + " 上传" : "") +
         (c.createdAt ? " · " + c.createdAt : "") + "</small></div>" +
         '<div style="display:flex;gap:6px;flex:none">' +
         '<button class="btn" data-action="lib-view" data-id="' + c.id + '">查看</button>' +
-        '<button class="btn btn-ghost" data-action="lib-remove" data-id="' + c.id + '">删除</button>' +
+        (canDel ? '<button class="btn btn-ghost" data-action="lib-remove" data-id="' + c.id + '">删除</button>' : "") +
         "</div></div></div>"
       );
     }).join("");
-    return (
-      pageHead("词库信息",
-        '<button class="btn btn-primary" data-action="lib-new">＋ 创建词库</button>') +
-      '<div class="section-title" style="margin-top:0">全部词库 · 共 ' + S.courses.length + " 个</div>" +
-      '<div class="card" style="margin-bottom:12px"><div style="font-size:13px;color:var(--muted);line-height:1.9">' +
-      "「创建词库」= 上传或粘贴单词表。每行一个单词，支持：<br>" +
-      "<b>英文,音标,中文</b>（如 <code>room,/ruːm/,房间</code>）· <b>英文,中文</b> · 只写 <b>英文</b>；" +
-      "分隔符可用逗号 / 制表符 / 中文逗号。</div></div>" +
-      (S.courses.length
-        ? '<div class="cards">' + cards + "</div>"
-        : '<div class="card"><div class="empty">还没有词库，点右上角「＋ 创建词库」上传</div></div>')
-    );
+  }
+  function refreshLibList() {
+    const host = document.getElementById("libList");
+    if (!host) return;
+    const list = libFiltered();
+    host.innerHTML = libCardsHtml(list);
+    const cnt = document.getElementById("libCount");
+    if (cnt) cnt.textContent = libCountText(list);
   }
   function openCreateCourse() {
     openModal(
       '<div class="modal-head">创建词库 <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body">' +
       '<div class="field"><label>词库名称 *</label><input id="cName" placeholder="如：人教版 · 必修一 Unit 3" /></div>' +
+      '<div class="field"><label>分类（不选会自动按名字判断）</label>' +
+      '<div class="lib-search lib-search-3">' +
+      libSelect("cBook", COURSE_BOOKS, "", "教材版本") +
+      libSelect("cStage", COURSE_STAGES, "", "学段") +
+      libSelect("cKind", COURSE_KINDS, "", "课程类型") +
+      "</div></div>" +
       '<div class="field"><label>上传文件（.csv / .txt，UTF-8）</label><input id="cFile" type="file" accept=".csv,.txt,text/plain,text/csv" /></div>' +
       '<div class="field"><label>或直接粘贴单词（每行一个）</label>' +
       '<textarea id="cText" class="input" rows="7" placeholder="room,/ruːm/,房间&#10;anxious,/ˈæŋkʃəs/,焦虑的&#10;admit,承认&#10;burden"></textarea></div>' +
@@ -1731,7 +1808,13 @@
     const ta = document.getElementById("cText");
     const words = parseWords(ta ? ta.value : "");
     if (!words.length) { toast("请上传文件或粘贴单词"); return; }
-    S.courses.push({ id: "u" + uid(), name: name, words: words, createdAt: todayKey() });
+    const guess = courseMeta({ name: name });
+    const pick = (id, fallback) => { const el = document.getElementById(id); return (el && el.value) || fallback; };
+    S.courses.push({
+      id: "u" + uid(), name: name, words: words, createdAt: todayKey(),
+      createdBy: meName(),
+      book: pick("cBook", guess.book), stage: pick("cStage", guess.stage), kind: pick("cKind", guess.kind),
+    });
     saveState();
     closeModal();
     route.name = "library";
@@ -1756,6 +1839,10 @@
   function removeCourse(id) {
     const c = courseById(id);
     if (!c) return;
+    if (!isRealAdmin() && c.createdBy && c.createdBy !== meName()) {
+      toast("这是别人上传的词库，只有管理员能删除");
+      return;
+    }
     const used = S.students.filter((s) => (s.courses || []).indexOf(id) >= 0).length;
     if (!confirm("确定删除词库「" + c.name + "」吗？" + (used ? "有 " + used + " 名学员已开通，会一并取消。" : ""))) return;
     S.courses = S.courses.filter((x) => x.id !== id);
@@ -2937,6 +3024,22 @@
       stuSearch = el.value.trim();
       const host = document.getElementById("stuList");
       if (host) host.innerHTML = stuListHtml(filterStudents(stuSearch));
+    }
+    if (el && (el.id === "libKw" || el.id === "libBook" || el.id === "libStage" || el.id === "libKind")) {
+      if (el.id === "libKw") libFilter.kw = el.value.trim();
+      else if (el.id === "libBook") libFilter.book = el.value;
+      else if (el.id === "libStage") libFilter.stage = el.value;
+      else libFilter.kind = el.value;
+      refreshLibList();
+    }
+  });
+  document.addEventListener("change", function (e) {
+    const el = e.target;
+    if (el && (el.id === "libBook" || el.id === "libStage" || el.id === "libKind")) {
+      if (el.id === "libBook") libFilter.book = el.value;
+      else if (el.id === "libStage") libFilter.stage = el.value;
+      else libFilter.kind = el.value;
+      refreshLibList();
     }
   });
 
