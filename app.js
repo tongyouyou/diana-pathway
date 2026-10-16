@@ -2014,18 +2014,18 @@
     const rows = list.length
       ? list.map(function (r, i) {
           const endStr = recEndTime(r);
-          return '<div class="tbl-row rec-row">' +
-            '<div class="c-idx">' + (i + 1) + "</div>" +
-            '<div class="c-stu">' + esc(r.student || "") + "</div>" +
-            '<div><span class="tag' + (r.type === "体验课" ? " gray" : "") + '">' + esc(r.type || "") + "</span></div>" +
-            '<div class="c-course">' + esc(r.course || r.subject || "") + "</div>" +
-            "<div>" + (r.time ? esc(r.date + " " + r.time) : "—") + "</div>" +
-            "<div>" + (endStr ? esc(r.date + " " + endStr) : "—") + "</div>" +
-            "<div>" + esc(r.coach || "") + "</div>" +
-            '<div class="c-ops"><button class="btn" data-action="rec-words" data-id="' + r.id + '">课后打印</button></div>' +
-            "</div>";
+          return "<tr>" +
+            '<td class="c-idx">' + (i + 1) + "</td>" +
+            "<td>" + esc(r.student || "") + "</td>" +
+            '<td><span class="tag' + (r.type === "体验课" ? " gray" : "") + '">' + esc(r.type || "") + "</span></td>" +
+            "<td>" + esc(r.course || r.subject || "") + "</td>" +
+            "<td>" + (r.time ? esc(r.date + " " + r.time) : "—") + "</td>" +
+            "<td>" + (endStr ? esc(r.date + " " + endStr) : "—") + "</td>" +
+            "<td>" + esc(r.coach || "") + "</td>" +
+            '<td class="c-ops"><button class="btn" data-action="rec-words" data-id="' + r.id + '">课后打印</button></td>' +
+            "</tr>";
         }).join("")
-      : '<div class="empty">还没有销课记录，上完课会自动生成</div>';
+      : '<tr><td colspan="8"><div class="empty">还没有销课记录，上完课会自动生成</div></td></tr>';
     return (
       pageHead("销课记录",
         '<button class="btn btn-ghost" data-action="export-records">导出 CSV</button>') +
@@ -2034,10 +2034,10 @@
       '<div class="stat"><b>' + cTrial + "</b><span>体验课</span></div>" +
       '<div class="stat"><b>' + all.length + "</b><span>上课总次数</span></div></div></div>" +
       '<div class="section-title">共 ' + list.length + ' 条</div>' +
-      '<div class="tbl-scroll"><div class="tbl rec-tbl">' +
-      '<div class="tbl-head rec-row"><div>序号</div><div>学员</div><div>课时类型</div><div>词库</div>' +
-      "<div>上课时间</div><div>下课时间</div><div>教练</div><div>操作</div></div>" +
-      '<div class="tbl-body">' + rows + "</div></div></div>"
+      '<div class="rec-scroll"><table class="rec-table">' +
+      "<thead><tr><th>序号</th><th>学员</th><th>课时类型</th><th>词库</th>" +
+      "<th>上课时间</th><th>下课时间</th><th>教练</th><th>操作</th></tr></thead>" +
+      "<tbody>" + rows + "</tbody></table></div>"
     );
   }
   /* 销课记录的下课时间 = 上课时间 + 时长 */
