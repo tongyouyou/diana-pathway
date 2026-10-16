@@ -263,6 +263,13 @@
         changed = true;
       }
     });
+    /* 学员同理：累计课时 = 累计充值，只增不减 */
+    ((s && s.students) || []).forEach(function (st) {
+      if (typeof st.totalHours !== "number") {
+        st.totalHours = studentTotalHours(st);
+        changed = true;
+      }
+    });
     return changed;
   }
   function cloudPull() {
@@ -340,6 +347,7 @@
       if (!Array.isArray(s.reviews)) s.reviews = [];
       if (!s.courses || !s.courses.length) s.courses = seedCourses();
       if (!s.coaches || !s.coaches.length) s.coaches = SEED_COACHES.map((c) => Object.assign({}, c, { joinedAt: todayKey() }));
+      migrateCoachTotals(s);
       return s;
     }
     const students = SEED_STUDENTS.map(([name, hours, courses]) => ({
@@ -655,6 +663,13 @@
     if (typeof c.totalHours === "number") return c.totalHours;
     const sum = (c.rechargeLog || []).reduce((a, x) => a + (Number(x && x.count) || 0), 0);
     return Math.max(sum, c.hours || 0);
+  }
+  /* 学员累计课时：只增不减（充值会加；排课占课时、上课销课、退费都不动它） */
+  function studentTotalHours(s) {
+    if (!s) return 0;
+    if (typeof s.totalHours === "number") return s.totalHours;
+    const sum = (s.rechargeLog || []).reduce((a, x) => a + (Number(x && x.count) || 0), 0);
+    return Math.max(sum, s.hours || 0);
   }
   /* 管理员=null（全部）；教练=自己；助教=所属教练 */
   function scopeOwner() {
@@ -2265,6 +2280,7 @@
       '<td class="c-idx">' + (i + 1) + "</td>" +
       "<td><b>" + esc(s.name) + "</b></td>" +
       "<td>" + esc(s.owner || "机构直属") + "</td>" +
+      "<td>" + studentTotalHours(s) + " 节</td>" +
       "<td>" + (s.hours || 0) + " 节</td>" +
       "<td>" + esc(s.sex || "—") + "</td>" +
       "<td>" + esc(s.grade || "—") + "</td>" +
@@ -2286,7 +2302,7 @@
     );
   }
   const filterStudents = (kw) => visibleStudents().filter((s) => !kw || s.name.indexOf(kw) >= 0 || (s.phone || "").indexOf(kw) >= 0);
-  const stuListHtml = (list) => (list.length ? list.map(studentRow).join("") : '<tr><td colspan="10"><div class="empty">没有匹配的学员</div></td></tr>');
+  const stuListHtml = (list) => (list.length ? list.map(studentRow).join("") : '<tr><td colspan="11"><div class="empty">没有匹配的学员</div></td></tr>');
   function viewStudents() {
     const list = visibleStudents();
     return (
@@ -2295,7 +2311,7 @@
       '<div class="section-title" style="margin-top:0">' + (isRealAdmin() ? "教授学员" : "我的学员") + " · 共 " + list.length + " 人</div>" +
       '<div class="card" style="margin-bottom:12px"><input id="stuSearch" class="input" placeholder="搜索学员姓名或手机号" value="' + esc(stuSearch) + '" /></div>' +
       '<div class="data-scroll"><table class="data-table">' +
-      "<thead><tr><th>序号</th><th>姓名</th><th>所属教练</th><th>课时</th><th>性别</th>" +
+      "<thead><tr><th>序号</th><th>姓名</th><th>所属教练</th><th>累计课时</th><th>剩余课时</th><th>性别</th>" +
       "<th>年级</th><th>状态</th><th>创建时间</th><th>备注</th><th>操作</th></tr></thead>" +
       '<tbody id="stuList">' + stuListHtml(filterStudents(stuSearch)) + "</tbody></table></div>"
     );
@@ -2595,10 +2611,10 @@
             '<td class="c-idx">' + (i + 1) + "</td>" +
             "<td>" + esc(r.student || "") + "</td>" +
             '<td><span class="tag' + (r.type === "体验课" ? " gray" : "") + '">' + esc(r.type || "") + "</span></td>" +
+            "<td>" + esc(r.coach || "") + "</td>" +
             "<td>" + esc(r.course || r.subject || "") + "</td>" +
             "<td>" + (r.time ? esc(r.date + " " + r.time) : "—") + "</td>" +
             "<td>" + (endStr ? esc(r.date + " " + endStr) : "—") + "</td>" +
-            "<td>" + esc(r.coach || "") + "</td>" +
             '<td class="c-ops"><button class="btn" data-action="rec-words" data-id="' + r.id + '">课后打印</button></td>' +
             "</tr>";
         }).join("")
@@ -2612,8 +2628,8 @@
       '<div class="stat"><b>' + all.length + "</b><span>上课总次数</span></div></div></div>" +
       '<div class="section-title">共 ' + list.length + ' 条</div>' +
       '<div class="rec-scroll"><table class="rec-table">' +
-      "<thead><tr><th>序号</th><th>学员</th><th>课时类型</th><th>词库</th>" +
-      "<th>上课时间</th><th>下课时间</th><th>教练</th><th>操作</th></tr></thead>" +
+      "<thead><tr><th>序号</th><th>学员</th><th>课时类型</th><th>教练</th><th>词库</th>" +
+      "<th>上课时间</th><th>下课时间</th><th>操作</th></tr></thead>" +
       "<tbody>" + rows + "</tbody></table></div>"
     );
   }
@@ -2981,7 +2997,8 @@
       const hEl = document.getElementById("sHours");
       const initHours = (isRealAdmin() && hEl) ? Math.max(0, parseInt(hEl.value, 10) || 0) : 0;
       S.students.push(Object.assign(
-        { id: uid(), owner: meName(), hours: initHours, status: "正常", courses: [], joinedAt: todayKey(), rechargeLog: [] },
+        { id: uid(), owner: meName(), hours: initHours, totalHours: initHours, status: "正常", courses: [], joinedAt: todayKey(),
+          rechargeLog: initHours > 0 ? [{ date: todayKey(), count: initHours, note: "初始课时" }] : [] },
         patch
       ));
       toast("已新增学员：" + name);
@@ -3039,7 +3056,9 @@
       if (left < n) { toast(owner.name + " 只剩 " + left + " 节，本次最多充 " + left + " 节"); return; }
       owner.hours = left - n;
     }
+    if (typeof s.totalHours !== "number") s.totalHours = studentTotalHours(s);
     s.hours = (s.hours || 0) + n;
+    s.totalHours += n;
     s.rechargeLog = s.rechargeLog || [];
     s.rechargeLog.unshift({ date: todayKey(), count: n, note: $("#rNote").value.trim() });
     saveState(); closeModal(); render();
