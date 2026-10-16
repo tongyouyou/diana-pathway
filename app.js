@@ -201,6 +201,27 @@
   function setCloudToken(t) {
     try { if (t) localStorage.setItem(CLOUD_TOKEN_KEY, t); else localStorage.removeItem(CLOUD_TOKEN_KEY); } catch (e) { /* ignore */ }
   }
+  /* 记住密码：只存在本机，换设备要重新勾选 */
+  const SAVED_LOGIN_KEY = "wn-saved-login";
+  function savedLogin() {
+    try { return JSON.parse(localStorage.getItem(SAVED_LOGIN_KEY) || "null"); } catch (e) { return null; }
+  }
+  function setSavedLogin(name, pass) {
+    try {
+      if (name && pass) localStorage.setItem(SAVED_LOGIN_KEY, JSON.stringify({ name: name, pass: pass }));
+      else localStorage.removeItem(SAVED_LOGIN_KEY);
+    } catch (e) { /* ignore */ }
+  }
+  /* 凭证失效时：回登录页，并用记住的密码自动登录 */
+  function autoLoginIfSaved() {
+    const sv = savedLogin();
+    if (!sv || !sv.name || !sv.pass) return false;
+    const gu = document.getElementById("gateUser"), gp = document.getElementById("gatePass");
+    if (!gu || !gp) return false;
+    gu.value = sv.name; gp.value = sv.pass;
+    doGateLogin();
+    return true;
+  }
   function api(path, opts) {
     opts = opts || {};
     const headers = { "Content-Type": "application/json" };
@@ -244,6 +265,13 @@
         return true;
       }
       if (r.status === 404) return cloudPush(true).then(function () { return true; });
+      if (r.status === 401 || r.status === 403) {
+        setCloudToken("");
+        S.user = null;
+        renderLoginGate();
+        autoLoginIfSaved();
+        return false;
+      }
       return false;
     });
   }
@@ -453,6 +481,7 @@
       '<div class="field"><label>账号</label><input id="gateUser" placeholder="请输入账号" autocomplete="username" /></div>' +
       '<div class="field"><label>密码</label><input id="gatePass" type="password" placeholder="请输入密码" autocomplete="current-password" /></div>' +
       '<div class="login-err" id="gateErr"></div>' +
+      '<label class="login-remember"><input type="checkbox" id="gateRemember"' + (savedLogin() ? " checked" : "") + ' /> <span>记住密码，下次自动登录</span></label>' +
       '<button class="btn btn-primary btn-block" data-action="gate-login">登录</button>' +
       "</div>";
     document.body.appendChild(gate);
@@ -470,6 +499,10 @@
     const fail = function (msg) {
       if (eEl) eEl.textContent = msg;
       if (pEl) { pEl.value = ""; pEl.focus(); }
+    };
+    const rememberMe = function () {
+      const remEl = document.getElementById("gateRemember");
+      if (remEl && remEl.checked) setSavedLogin(u, p); else setSavedLogin("", "");
     };
     if (CLOUD_MODE) {
       if (eEl) eEl.textContent = "正在登录…";
@@ -493,6 +526,7 @@
           }
           S.user = { name: u, at: todayKey() };
           if (eEl) eEl.textContent = "";
+          rememberMe();
           renderLoginGate();
           renderHeader();
           render();
@@ -510,6 +544,7 @@
       S.user = { name: u, at: todayKey() };
       saveState();
       if (eEl) eEl.textContent = "";
+      rememberMe();
       renderLoginGate();
       renderHeader();
       render();
@@ -3093,7 +3128,7 @@
   renderLoginGate();
   renderStorageWarning();
   if (CLOUD_MODE) {
-    if (!cloudToken()) { S.user = null; renderLoginGate(); }
+    if (!cloudToken()) { S.user = null; renderLoginGate(); autoLoginIfSaved(); }
     cloudPull().then(function (ok) {
       if (!ok) return;
       renderHeader();

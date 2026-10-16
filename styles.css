@@ -800,6 +800,11 @@ textarea.input { resize: vertical; line-height: 1.7; font-family: inherit; }
 .login-tip { text-align: center; color: var(--muted); font-size: 12.5px; margin: 8px 0 22px; }
 .login-card .field input { padding: 12px 13px; font-size: 14px; }
 .login-err { min-height: 18px; color: var(--bad); font-size: 12.5px; margin: 0 2px 8px; }
+.login-remember {
+  display: flex; align-items: center; gap: 7px; cursor: pointer;
+  font-size: 13px; color: var(--muted); margin: -2px 2px 14px;
+}
+.login-remember input { width: 15px; height: 15px; accent-color: var(--brand); cursor: pointer; }
 .login-card .btn-block { padding: 14px; font-size: 15px; border-radius: 14px; margin-top: 2px; }
 
 /* ============ 存储不可用提醒 ============ */
