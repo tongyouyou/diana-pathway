@@ -431,6 +431,17 @@ body {
 /* 词条行右侧的「改 / 删」 */
 .cw-row .cw-ops { display: flex; gap: 6px; flex: none; }
 .cw-row .cw-ops .btn { padding: 4px 10px; font-size: 12.5px; }
+/* 词库信息：按教材版本分组的吸顶标签 */
+.lib-group-head {
+  position: sticky; top: 0; z-index: 3;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin: 18px 2px 8px; padding: 8px 2px;
+  background: var(--bg);
+  font-size: 13.5px; font-weight: 800; color: var(--text);
+  border-bottom: 1px solid var(--line);
+}
+.lib-group-head:first-child { margin-top: 6px; }
+.lib-group-head em { font-style: normal; font-weight: 600; font-size: 12.5px; color: var(--muted); }
 
 /* ============ 弹窗 ============ */
 .modal-backdrop {

@@ -1932,14 +1932,40 @@
       if (f.kind && x.m.kind !== f.kind) return false;
       return true;
     });
-    /* 最新导入的词库排在最前面：先按创建日期倒序，同一天的按导入先后倒序 */
+    /* 先按教材版本分组，同版本里「新课标版」在前，再按年级从小到大，最后按导入先后倒序 */
     list.sort(function (a, b) {
-      const da = a.c.createdAt || "";
-      const db = b.c.createdAt || "";
-      if (da !== db) return da < db ? 1 : -1;
+      const ga = libBookRank(a.m.book), gb = libBookRank(b.m.book);
+      if (ga !== gb) return ga - gb;
+      const na = /新课标/.test(a.c.name) ? 0 : 1, nb = /新课标/.test(b.c.name) ? 0 : 1;
+      if (na !== nb) return na - nb;
+      const ya = libGrade(a.c, a.m), yb = libGrade(b.c, b.m);
+      if (ya !== yb) return ya - yb;
       return b.i - a.i;
     });
     return list;
+  }
+  /* 版本分组的先后顺序 */
+  function libBookRank(book) {
+    const idx = COURSE_BOOKS.indexOf(book);
+    return idx >= 0 ? idx : COURSE_BOOKS.length + 1;
+  }
+  /* 年级排序：小学一年级 = 1 …… 高中 = 10 起（越小越靠前） */
+  function libGrade(c, m) {
+    const n = c.name || "";
+    const num = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+    const b0 = { 小学: 0, 初中: 6, 高中: 9, 大学: 12, 其他: 13 }[m.stage];
+    const b = b0 === undefined ? 13 : b0;
+    const yr = n.match(/([一二三四五六七八九])年级(上|下)?/);
+    if (yr) return num[yr[1]] + (yr[2] === "下" ? 0.2 : 0.1);
+    const yr2 = n.match(/([一二三四五六七八九])年(上|下)?/);
+    if (yr2) return num[yr2[1]] + (yr2[2] === "下" ? 0.2 : 0.1);
+    const gr = n.match(/(初|高)([一二三])/);
+    if (gr) return (gr[1] === "初" ? 6 : 9) + num[gr[2]] + 0.1;
+    const bx = n.match(/(必修|选修)([一二三四五])/);
+    if (bx) return (bx[1] === "必修" ? 9.5 : 10.5) + (num[bx[2]] || 1) * 0.1;
+    const st = n.match(/(小学|初中|高中)(初级|中级|高级)/);
+    if (st) return b + ({ 初级: 0.1, 中级: 0.2, 高级: 0.3 }[st[2]] || 0.4);
+    return b + 0.5;
   }
   function libCountText(list) {
     return "词库 · 共 " + list.length + " 个" +
@@ -1950,7 +1976,19 @@
       return '<div class="card"><div class="empty">' +
         (S.courses.length ? "没有符合条件的词库，换个条件试试" : "还没有词库，点右上角「＋ 创建词库」上传") + "</div></div>";
     }
-    return list.map(function (x) {
+    /* 按教材版本分组：组标题吸顶，组内按年级排（新课标版在前） */
+    const groups = [];
+    list.forEach(function (x) {
+      const key = x.m.book || "其他";
+      if (!groups.length || groups[groups.length - 1].key !== key) groups.push({ key: key, items: [] });
+      groups[groups.length - 1].items.push(x);
+    });
+    return groups.map(function (g) {
+      return '<div class="lib-group-head"><span>' + esc(g.key) + "</span><em>" + g.items.length + " 个</em></div>" +
+        '<div class="cards">' + g.items.map(libCardHtml).join("") + "</div>";
+    }).join("");
+  }
+  function libCardHtml(x) {
       const c = x.c;
       const n = courseSize(c);
       const opened = S.students.filter((s) => (s.courses || []).indexOf(c.id) >= 0).length;
@@ -1971,7 +2009,6 @@
         (canDel ? '<button class="btn btn-ghost" data-action="lib-remove" data-id="' + c.id + '">删除</button>' : "") +
         "</div></div></div>"
       );
-    }).join("");
   }
   function refreshLibList() {
     const host = document.getElementById("libList");
