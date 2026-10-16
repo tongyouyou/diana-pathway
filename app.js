@@ -514,6 +514,10 @@
     if (co && co.role === "teacher") { co.hours = Math.max(0, (co.hours || 0) - 1); return true; }
     return false;
   }
+  function coachHoursLeft(name) {
+    const co = name ? coachByName(name) : null;
+    return (co && co.role === "teacher") ? (co.hours || 0) : null;
+  }
   function refundCoachHour(name) {
     const co = name ? coachByName(name) : null;
     if (co && co.role === "teacher") co.hours = (co.hours || 0) + 1;
@@ -2206,6 +2210,14 @@
     if (editId) {
       const c = S.classes.find((x) => x.id === editId);
       if (c) {
+        /* 改到另一个教练名下前，先看那边还有没有课时 */
+        if (c.status !== "已完成") {
+          const wantPre = chargeTargetName(studentById(patch.studentId), patch.coach);
+          if (wantPre && wantPre !== (c.billTo || "") && coachHoursLeft(wantPre) <= 0) {
+            toast(wantPre + " 的课时已用完，请先充值再排课");
+            return;
+          }
+        }
         Object.assign(c, patch);
         /* 还没上课的排课：改了学员/教练，课时重新记到新的教练头上 */
         if (c.status !== "已完成") {
@@ -2226,6 +2238,10 @@
       /* 一排课就把课时占上（60分钟课、体验课都占 1 节） */
       const stu0 = studentById(cls.studentId);
       const target = chargeTargetName(stu0, cls.coach);
+      if (target && coachHoursLeft(target) <= 0) {
+        toast(target + " 的课时已用完，请先充值再排课");
+        return;
+      }
       cls.billTo = chargeCoachHour(target) ? target : "";
       S.classes.push(cls);
       toast("排课成功");
