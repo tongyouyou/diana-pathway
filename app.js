@@ -303,11 +303,13 @@
   let currentCourseId = null;
   let currentCourseStudentId = null;
   let currentStudentId = null;
+  let currentCoachName = null;
   let stuSearch = "";
   let libFilter = { kw: "", book: "", stage: "", kind: "" };
   let prepMode = false;   /* 备课模式：只预览词库，不上课 */
   let navSuperviseOpen = false;
   let grantDraft = [];
+  let grantKw = "";
   let breakTimer = null;
   let breakRemaining = 5 * 60 * 1000;
   let breakRunning = false;
@@ -2015,7 +2017,7 @@
             "<td>" + coachStatusBadge(c) + "</td>" +
             "<td>" + esc(c.joinedAt || "—") + "</td>" +
             '<td class="c-ops">' +
-            '<button class="btn" data-action="coach-view" data-id="' + esc(c.name) + '">查看</button>' +
+            '<button class="btn" data-action="coach-detail" data-id="' + esc(c.name) + '">查看</button>' +
             (isRealAdmin() && c.role === "teacher"
               ? '<button class="btn btn-primary" data-action="coach-recharge" data-id="' + esc(c.name) + '">充值</button>'
               : "") +
@@ -2023,7 +2025,7 @@
               ? '<button class="btn btn-primary" data-action="coach-approve" data-id="' + esc(c.name) + '">审核通过</button>'
               : "") +
             '<button class="btn" data-action="coach-edit" data-id="' + esc(c.name) + '">编辑</button>' +
-            (canManageCoach(c)
+            (canManageCoach(c) && coachStatus(c) === "禁用"
               ? '<button class="btn btn-ghost" data-action="coach-del" data-id="' + esc(c.name) + '">删除</button>'
               : "") +
             "</td></tr>"
@@ -2045,25 +2047,50 @@
     );
   }
   function openCoachView(name) {
+    return coachDetailHtml(name);
+  }
+  function coachDetailHtml(name) {
     const c = coachByName(name);
-    if (!c) return;
-    const rows = [
+    if (!c) return '<div class="card"><div class="empty">账号不存在</div></div>';
+    const recs = (S.records || []).filter(function (r) { return (r.coach || "Diana") === c.name; });
+    const totalMin = recs.reduce(function (a, r) { return a + (r.minutes || 0); }, 0);
+    const trial = recs.filter(function (r) { return r.type === "体验课"; }).length;
+    const kv = [
       ["姓名", c.name],
       ["账号类型", roleZh(c)],
       ["手机号", c.phone || "—"],
       ["登录密码", c.pass || "—"],
       ["创建日期", c.joinedAt || "—"],
       ["账号状态", coachStatus(c)],
+      ["归属教练", c.role === "coach" ? (c.parent || "机构直属") : "—"],
+      ["剩余课时", c.role === "teacher" ? (c.hours || 0) + " 节" : "—"],
     ];
-    if (c.role === "coach") rows.push(["归属教练", c.parent || "机构直属"]);
-    if (c.role === "teacher") rows.push(["剩余课时", (c.hours || 0) + " 节"]);
-    openModal(
-      '<div class="modal-head">查看教练 · ' + esc(c.name) + ' <span class="x" data-action="close-modal">×</span></div>' +
-      '<div class="modal-body">' + rows.map(function (r) {
-        return '<div class="kv"><span class="k">' + esc(r[0]) + '</span><span class="v">' + esc(String(r[1])) + "</span></div>";
-      }).join("") + "</div>" +
-      '<div class="modal-foot"><button class="btn btn-primary" data-action="close-modal">关闭</button></div>'
+    const recRows = recs.length
+      ? recs.slice(0, 50).map(function (r) {
+          const rate = r.total ? Math.round((r.correct / r.total) * 100) : 0;
+          return '<div class="list-item"><div class="li-main"><b>' + esc(r.student || "") + " · " + esc(r.course || r.subject || "") +
+            "</b><small>" + esc(r.date || "") + " · " + esc(r.type || "") + " · 正确率 " + rate + '%</small></div>' +
+            '<span class="li-h">' + (r.minutes || 0) + "′</span></div>";
+        }).join("")
+      : '<div class="empty">还没有上课记录</div>';
+    return (
+      pageHead(c.name, '<button class="btn btn-ghost" data-action="coach-back">返回列表</button>') +
+      '<div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(420px,1fr))">' +
+      '<div class="card"><div class="section-title" style="margin-top:0">账号信息</div>' +
+      kv.map(function (x) {
+        return '<div class="kv"><span class="k">' + esc(x[0]) + '</span><span class="v">' + esc(String(x[1])) + "</span></div>";
+      }).join("") +
+      "</div></div>" +
+      '<div class="card" style="margin-top:12px"><div class="stat-grid">' +
+      '<div class="stat"><b>' + recs.length + "</b><span>累计课时</span></div>" +
+      '<div class="stat"><b>' + trial + "</b><span>体验课</span></div>" +
+      '<div class="stat"><b>' + totalMin + "</b><span>累计时长(分)</span></div></div></div>" +
+      '<div class="section-title">上课记录（' + recs.length + '）</div>' +
+      '<div class="card">' + recRows + "</div>"
     );
+  }
+  function viewCoachDetail() {
+    return coachDetailHtml(currentCoachName);
   }
   function openCoachForm(name) {
     return openCoachFormImpl(name);
@@ -2182,6 +2209,7 @@
     const c = (S.coaches || []).find((x) => x.name === name);
     if (!c) return;
     if (S.user && S.user.name === name) { toast("不能删除当前登录的账号"); return; }
+    if (coachStatus(c) !== "禁用") { toast("请先禁用该账号再删除"); return; }
     if (S.coaches.length <= 1) { toast("至少要保留一个教练账号"); return; }
     if ((!c.role || c.role === "admin") && adminCount() <= 1) { toast("至少要保留一个管理员账号"); return; }
     const used = S.classes.filter((x) => x.coach === name).length;
@@ -2421,8 +2449,9 @@
     else if (route.name === "student") v.innerHTML = viewStudentDetail();
     else if (route.name === "students") v.innerHTML = viewStudents();
     else if (route.name === "coaches") v.innerHTML = viewCoaches();
+    else if (route.name === "coach") v.innerHTML = viewCoachDetail();
     else v.innerHTML = viewMe();
-    const map = { dashboard: "dashboard", schedule: "schedule", teach: "schedule", course: "schedule", lesson: "schedule", students: "students", student: "students", coaches: "coaches", record: "record", library: "library", review: "review", anti: "review", me: "me" };
+    const map = { dashboard: "dashboard", schedule: "schedule", teach: "schedule", course: "schedule", lesson: "schedule", students: "students", student: "students", coaches: "coaches", coach: "coaches", record: "record", library: "library", review: "review", anti: "review", me: "me" };
     const active = map[route.name] || route.name;
     $$("#tabbar .tab").forEach((b) => b.classList.toggle("is-active", b.dataset.nav === active));
     renderHeader();
@@ -2674,22 +2703,30 @@
     const s = studentById(id);
     if (!s) return;
     grantDraft = (s.courses || []).slice();
-    const grantable = S.courses.filter((c) => !c.trial);
-    const rows = grantable.length
-      ? grantable.map(function (c) {
+    grantKw = "";
+    const grSearchHtml = '<input id="grKw" class="input" style="margin-bottom:10px" placeholder="搜索词库名称" />';
+    openModal(
+      '<div class="modal-head">课程开通 · ' + esc(s.name) + ' <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-body"><p style="color:var(--muted);font-size:12.5px;margin:0 0 8px">勾选要给该学员开通的词库（自建词库稍后可上传）。</p>' +
+      grSearchHtml + '<div id="grList">' + grantListHtml(s) + "</div></div>" +
+      '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
+      '<button class="btn btn-primary" data-action="grant-save" data-id="' + id + '">保存</button></div>'
+    );
+  }
+  function grantListHtml(s) {
+    const kw = grantKw;
+    const list = S.courses.filter(function (c) {
+      if (c.trial) return false;
+      if (!kw) return true;
+      return c.name.indexOf(kw) >= 0;
+    });
+    if (!list.length) return '<div class="empty">没有匹配的词库</div>';
+    return list.map(function (c) {
       const on = grantDraft.indexOf(c.id) >= 0;
       return '<div class="chk-row" data-action="grant-toggle" data-id="' + c.id + '">' +
         '<span class="chk ' + (on ? "on" : "") + '">✓</span>' +
         '<div class="cm"><b>' + esc(c.name) + "</b><small>共 " + courseSize(c) + " 词 · 已学 " + learnedCount(s.id, c.id) + "</small></div></div>";
-    }).join("")
-      : '<div class="empty">没有可开通的词库（体验课词库对所有学员开放，不需要在这里开通）</div>';
-    openModal(
-      '<div class="modal-head">课程开通 · ' + esc(s.name) + ' <span class="x" data-action="close-modal">×</span></div>' +
-      '<div class="modal-body"><p style="color:var(--muted);font-size:12.5px;margin:0 0 8px">勾选要给该学员开通的词库（自建词库稍后可上传）。</p>' +
-      rows + "</div>" +
-      '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
-      '<button class="btn btn-primary" data-action="grant-save" data-id="' + id + '">保存</button></div>'
-    );
+    }).join("");
   }
   function openMore(id) {
     const s = studentById(id);
@@ -3118,6 +3155,8 @@
       case "coach-recharge": openCoachRecharge(id); break;
       case "coach-recharge-save": saveCoachRecharge(id); break;
       case "coach-approve": approveCoach(id); break;
+      case "coach-detail": currentCoachName = id; route.name = "coach"; render(); break;
+      case "coach-back": route.name = "coaches"; render(); break;
       case "coach-toggle-status": toggleCoachStatus(id); break;
       case "coach-save": saveCoach(id); break;
       case "coach-del": delCoach(id); break;
@@ -3162,6 +3201,13 @@
       else if (el.id === "libStage") libFilter.stage = el.value;
       else libFilter.kind = el.value;
       refreshLibList();
+    }
+    if (el && el.id === "grKw") {
+      grantKw = el.value.trim();
+      const gsBtn = document.querySelector('[data-action="grant-save"]');
+      const gsStu = gsBtn ? studentById(gsBtn.dataset.id) : null;
+      const gsHost = document.getElementById("grList");
+      if (gsHost && gsStu) gsHost.innerHTML = grantListHtml(gsStu);
     }
   });
   document.addEventListener("change", function (e) {
