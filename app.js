@@ -388,6 +388,10 @@
     const p = pEl ? pEl.value : "";
     const coach = (S.coaches || []).find((c) => c.name === u);
     if (coach && coach.pass === p) {
+      if (coachStatus(coach) !== "正常") {
+        toast(coachStatus(coach) === "待审核" ? "账号审核中，请联系管理员" : "该账号已停用");
+        return;
+      }
       S.user = { name: u, at: todayKey() };
       saveState();
       closeModal();
@@ -443,11 +447,22 @@
       if (eEl) eEl.textContent = "正在登录…";
       api("/api/login", { method: "POST", body: JSON.stringify({ name: u, pass: p }) }).then(function (r) {
         if (r.status !== 200 || !r.body || !r.body.token) {
-          fail(r.status === 401 ? "账号或密码不正确" : "登录失败，请检查网络后重试");
+          const err = r.body && r.body.error;
+          fail(r.status === 401 ? "账号或密码不正确"
+            : err === "pending" ? "账号审核中，请联系管理员"
+            : err === "disabled" ? "该账号已停用"
+            : "登录失败，请检查网络后重试");
           return;
         }
         setCloudToken(r.body.token);
         return cloudPull().then(function () {
+          const me2 = (S.coaches || []).find((c) => c.name === u);
+          const st2 = me2 ? coachStatus(me2) : "正常";
+          if (st2 !== "正常") {
+            setCloudToken("");
+            if (eEl) eEl.textContent = st2 === "待审核" ? "账号审核中，请联系管理员" : "该账号已停用";
+            return;
+          }
           S.user = { name: u, at: todayKey() };
           if (eEl) eEl.textContent = "";
           renderLoginGate();
@@ -460,6 +475,10 @@
     }
     const coach = (S.coaches || []).find((c) => c.name === u);
     if (coach && coach.pass === p) {
+      if (coachStatus(coach) !== "正常") {
+        if (eEl) eEl.textContent = coachStatus(coach) === "待审核" ? "账号审核中，请联系管理员" : "该账号已停用";
+        return;
+      }
       S.user = { name: u, at: todayKey() };
       saveState();
       if (eEl) eEl.textContent = "";
@@ -512,6 +531,14 @@
   function coachHoursLeft(name) {
     const co = name ? coachByName(name) : null;
     return (co && co.role === "teacher") ? (co.hours || 0) : null;
+  }
+  /* 账号状态：正常 / 待审核 / 禁用（教练提交的助教需要管理员审核） */
+  const coachStatus = (c) => (c && c.status) || "正常";
+  function canManageCoach(c) {
+    if (!c) return false;
+    if (S.user && S.user.name === c.name) return false;
+    if (isRealAdmin()) return true;
+    return c.role === "coach" && c.parent === meName();
   }
   /* 学员课时：排课时占用 1 节，删掉待上课的排课就退还 */
   function occupyStudentHour(stu) { if (stu) stu.hours = Math.max(0, (stu.hours || 0) - 1); }
@@ -1540,7 +1567,7 @@
     const full = isRealAdmin();
     const meCoach = currentCoach();
     const myClasses = full ? S.classes : visibleClasses();
-    const coachCount = full ? (S.coaches || []).length : myTeam().length;
+    const coachCount = full ? (S.coaches || []).length : myTeam().filter((c) => coachStatus(c) === "正常").length;
     const today = todayKey();
     const pendingCount = myClasses.filter((c) => c.date === today && c.status !== "已完成").length;
     const hours = myStudents.reduce((a, s) => a + (s.hours || 0), 0);
@@ -1800,8 +1827,10 @@
         '<div class="mgmt-info"><span class="avatar">' + esc(c.name.slice(0, 1)) + "</span>" +
         '<div class="mi-main"><b>' + esc(c.name) + "</b><small>登录账号 " + esc(c.name) +
         (c.role === "teacher" ? " · 剩余课时 " + ((c.hours || 0)) + " 节" : " · 名下排课 " + cnt + " 节") +
-        (c.role === "coach" ? " · 归属教练 " + esc(c.parent || "（未指定）") : "") +
+        (c.role === "coach" ? " · 归属" + (c.parent ? "教练 " + esc(c.parent) : "：机构直属") : "") +
         (c.joinedAt ? " · " + c.joinedAt : "") + "</small></div>" +
+        (coachStatus(c) === "待审核" ? '<span class="badge wait">审核中</span>' : "") +
+        (coachStatus(c) === "禁用" ? '<span class="badge live">已禁用</span>' : "") +
         ((!c.role || c.role === "admin")
           ? '<span class="badge done">管理员</span>'
           : c.role === "memory"
@@ -1814,10 +1843,17 @@
         (isRealAdmin() && c.role === "teacher"
           ? '<button class="btn btn-primary" data-action="coach-recharge" data-id="' + esc(c.name) + '">充值</button>'
           : "") +
+        (isRealAdmin() && coachStatus(c) === "待审核"
+          ? '<button class="btn btn-primary" data-action="coach-approve" data-id="' + esc(c.name) + '">审核通过</button>'
+          : "") +
+        (canManageCoach(c) && coachStatus(c) !== "待审核"
+          ? '<button class="btn" data-action="coach-toggle-status" data-id="' + esc(c.name) + '">' +
+            (coachStatus(c) === "禁用" ? "启用" : "禁用") + "</button>"
+          : "") +
         '<button class="btn" data-action="coach-edit" data-id="' + esc(c.name) + '">编辑</button>' +
-        (S.user && S.user.name === c.name && !isRealAdmin()
-          ? ""
-          : '<button class="btn btn-ghost" data-action="coach-del" data-id="' + esc(c.name) + '">删除</button>') +
+        (canManageCoach(c)
+          ? '<button class="btn btn-ghost" data-action="coach-del" data-id="' + esc(c.name) + '">删除</button>'
+          : "") +
         "</div></div>"
       );
     }).join("");
@@ -1845,7 +1881,7 @@
       : '<option value="coach" selected>助教账号</option>';
     const parentField = admin
       ? '<div class="field"><label>归属教练（仅助教账号需要）</label><select id="coParent">' +
-        '<option value="">（机构直属 / 暂不指定）</option>' +
+        '<option value="">机构直属</option>' +
         (S.coaches || []).filter((x) => x.role === "teacher").map(function (x) {
           return '<option value="' + esc(x.name) + '"' + (c && c.parent === x.name ? " selected" : "") + ">" + esc(x.name) + "</option>";
         }).join("") +
@@ -1898,15 +1934,35 @@
       if (S.coaches.some((x) => x.name === name)) { toast("该教练名已存在"); return; }
       S.coaches.push({
         name: name, pass: pass, role: role, joinedAt: todayKey(),
+        status: isRealAdmin() ? "正常" : "待审核",
         parent: role === "coach" ? (isRealAdmin() ? (parentEl ? parentEl.value : "") : meName()) : "",
       });
-      toast("已新增教练：" + name);
+      toast(isRealAdmin() ? "已新增教练：" + name : "已提交，等待管理员审核：" + name);
     }
     saveState();
     closeModal();
     render();
   }
+  /* 管理员审核教练提交的助教账号 → 启用 */
+  function approveCoach(name) {
+    const c = coachByName(name);
+    if (!c) return;
+    c.status = "正常";
+    saveState(); render();
+    toast("已通过审核并启用：" + name);
+  }
+  /* 启用 / 禁用账号（管理员管全部；教练管自己名下的助教） */
+  function toggleCoachStatus(name) {
+    const c = coachByName(name);
+    if (!c) return;
+    if (!canManageCoach(c)) { toast("没有权限操作该账号"); return; }
+    c.status = coachStatus(c) === "禁用" ? "正常" : "禁用";
+    saveState(); render();
+    toast(c.status === "禁用" ? "已禁用：" + name : "已启用：" + name);
+  }
   function delCoach(name) {
+    const c0 = (S.coaches || []).find((x) => x.name === name);
+    if (c0 && !canManageCoach(c0)) { toast("没有权限操作该账号"); return; }
     const c = (S.coaches || []).find((x) => x.name === name);
     if (!c) return;
     if (S.user && S.user.name === name) { toast("不能删除当前登录的账号"); return; }
@@ -2152,7 +2208,8 @@
   const studentOptions = (selectedId) =>
     visibleStudents().map((s) => '<option value="' + s.id + '"' + (s.id === selectedId ? " selected" : "") + ">" + esc(s.name) + "</option>").join("");
   function coachOptions(selected) {
-    const list = (isRealAdmin() ? (S.coaches || []) : myTeam()).map((c) => c.name);
+    const list = (isRealAdmin() ? (S.coaches || []) : myTeam())
+      .filter((c) => coachStatus(c) === "正常").map((c) => c.name);
     if (S.user && list.indexOf(S.user.name) < 0) list.push(S.user.name);
     visibleClasses().forEach((c) => { if (c.coach && list.indexOf(c.coach) < 0) list.push(c.coach); });
     if (selected && list.indexOf(selected) < 0) list.push(selected);
@@ -2789,6 +2846,8 @@
       case "coach-edit": openCoachForm(id); break;
       case "coach-recharge": openCoachRecharge(id); break;
       case "coach-recharge-save": saveCoachRecharge(id); break;
+      case "coach-approve": approveCoach(id); break;
+      case "coach-toggle-status": toggleCoachStatus(id); break;
       case "coach-save": saveCoach(id); break;
       case "coach-del": delCoach(id); break;
       case "lib-save": saveCourse(); break;
