@@ -839,7 +839,9 @@
       "<b>" + esc(c.time) + "</b><span>" + type.label + "</span></div>" +
       '<div class="class-main"><div class="who"><span class="avatar">' +
       (stu ? esc(stu.name.slice(0, 1)) : "?") + "</span>" + (stu ? esc(stu.name) : "未知学员") +
-      badge + "</div></div>" +
+      badge + "</div>" +
+      '<div class="class-coach" style="font-size:12.5px;color:var(--muted);margin-top:4px">教练：' +
+      esc(c.coach || (S.user && S.user.name) || "Diana") + "</div></div>" +
       '<div class="class-actions">' +
       (c.status !== "已完成"
         ? '<button class="btn btn-primary" data-action="start-class" data-id="' + c.id + '">上课</button>'
@@ -1601,7 +1603,7 @@
       "</div>" +
       '<div class="mini-stats">' +
       '<span>今日待上课 <b>' + pendingCount + "</b> 节</span>" +
-      '<span>全机构剩余课时 <b>' + hours + "</b> 节</span>" +
+      '<span>' + (full ? "全机构剩余课时" : "全机构总课时") + ' <b>' + hours + "</b> 节</span>" +
       '<span>词库总词数 <b>' + totalWords.toLocaleString() + "</b> 词</span>" +
       "</div>" +
       '<div class="section-title">排课管理 · 共 ' + classes.length + ' 节</div>' +
