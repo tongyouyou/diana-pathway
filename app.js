@@ -1951,7 +1951,7 @@
     list.sort(function (a, b) {
       const ga = libBookRank(a.m.book), gb = libBookRank(b.m.book);
       if (ga !== gb) return ga - gb;
-      const na = /新课标/.test(a.c.name) ? 0 : 1, nb = /新课标/.test(b.c.name) ? 0 : 1;
+      const na = /新课标|新版/.test(a.c.name) ? 0 : 1, nb = /新课标|新版/.test(b.c.name) ? 0 : 1;
       if (na !== nb) return na - nb;
       const ya = libGrade(a.c, a.m), yb = libGrade(b.c, b.m);
       if (ya !== yb) return ya - yb;
