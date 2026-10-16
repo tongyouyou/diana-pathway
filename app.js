@@ -594,6 +594,15 @@
     if (isRealAdmin()) return true;
     return c.role === "coach" && c.parent === meName();
   }
+  function coachStatusBadge(c) {
+    const st = coachStatus(c);
+    if (st === "待审核") return '<span class="badge wait">审核中</span>';
+    if (st === "禁用") return '<span class="badge live">已禁用</span>';
+    return '<span class="badge done">正常</span>';
+  }
+  function taughtCount(name) {
+    return (S.records || []).filter(function (r) { return (r.coach || "Diana") === name; }).length;
+  }
   /* 学员课时：排课时占用 1 节，删掉待上课的排课就退还 */
   function occupyStudentHour(stu) { if (stu) stu.hours = Math.max(0, (stu.hours || 0) - 1); }
   function refundStudentHour(stu) { if (stu) stu.hours = (stu.hours || 0) + 1; }
@@ -1911,7 +1920,7 @@
       "<td>" + esc(s.owner || "机构直属") + "</td>" +
       "<td>" + (s.hours || 0) + " 节</td>" +
       "<td>" + esc(s.sex || "—") + "</td>" +
-      "<td>" + (s.phone ? esc(s.phone) : "—") + "</td>" +
+      "<td>" + esc(s.grade || "—") + "</td>" +
       '<td>' + (s.status === "禁用" ? '<span class="badge live">已禁用</span>' : '<span class="badge done">正常</span>') + "</td>" +
       '<td>' + esc(s.joinedAt || "—") + "</td>" +
       '<td class="c-ops">' +
@@ -1939,7 +1948,7 @@
       '<div class="card" style="margin-bottom:12px"><input id="stuSearch" class="input" placeholder="搜索学员姓名或手机号" value="' + esc(stuSearch) + '" /></div>' +
       '<div class="data-scroll"><table class="data-table">' +
       "<thead><tr><th>序号</th><th>姓名</th><th>所属教练</th><th>课时</th><th>性别</th>" +
-      "<th>手机号</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>" +
+      "<th>年级</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>" +
       '<tbody id="stuList">' + stuListHtml(filterStudents(stuSearch)) + "</tbody></table></div>"
     );
   }
@@ -2000,11 +2009,10 @@
             "<tr>" +
             '<td class="c-idx">' + (i + 1) + "</td>" +
             "<td><b>" + esc(c.name) + "</b>" +
-            (coachStatus(c) === "待审核" ? ' <span class="badge wait">审核中</span>' : "") +
-            (coachStatus(c) === "禁用" ? ' <span class="badge live">已禁用</span>' : "") +
             (S.user && S.user.name === c.name ? ' <span class="badge done">当前登录</span>' : "") + "</td>" +
             "<td>" + roleLabel + "</td>" +
-            "<td>" + (c.phone ? esc(c.phone) : "—") + "</td>" +
+            "<td>" + taughtCount(c.name) + " 节</td>" +
+            "<td>" + coachStatusBadge(c) + "</td>" +
             "<td>" + esc(c.joinedAt || "—") + "</td>" +
             '<td class="c-ops">' +
             '<button class="btn" data-action="coach-view" data-id="' + esc(c.name) + '">查看</button>' +
@@ -2021,7 +2029,7 @@
             "</td></tr>"
           );
         }).join("")
-      : '<tr><td colspan="6"><div class="empty">还没有教练</div></td></tr>';
+      : '<tr><td colspan="7"><div class="empty">还没有教练</div></td></tr>';
     return (
       pageHead("教练管理",
         '<button class="btn btn-primary" data-action="coach-new">＋ 新增教练</button>') +
@@ -2032,7 +2040,7 @@
         : "这里只显示你自己和你名下的助教。你可以给自己开通<b>助教账号</b>。") +
       "</div></div>" +
       '<div class="data-scroll"><table class="data-table">' +
-      "<thead><tr><th>序号</th><th>姓名</th><th>教练类型</th><th>手机号</th><th>创建日期</th><th>操作</th></tr></thead>" +
+      "<thead><tr><th>序号</th><th>姓名</th><th>教练类型</th><th>累计课时</th><th>账号状态</th><th>创建日期</th><th>操作</th></tr></thead>" +
       "<tbody>" + rows + "</tbody></table></div>"
     );
   }
