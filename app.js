@@ -503,6 +503,12 @@
   function adminCount() {
     return (S.coaches || []).filter((c) => !c.role || c.role === "admin").length;
   }
+  /* 销课时，从该学员所属教练的课时里扣 1 节 */
+  function deductCoachHour(ownerName, classCoach) {
+    let co = ownerName ? coachByName(ownerName) : null;
+    if (!co || co.role !== "teacher") co = classCoach ? coachByName(classCoach) : null;
+    if (co && co.role === "teacher") co.hours = Math.max(0, (co.hours || 0) - 1);
+  }
   /* 课表信息里每个人都只看自己名下的排课（管理员要看全部请用「控制台」的排课管理） */
   function visibleClasses() {
     if (isRealAdmin()) return S.classes;
@@ -1216,7 +1222,10 @@
       };
       S.records.unshift(rec);
       if (cls) cls.status = "已完成";
-      if (stu && type.key === "60") stu.hours = Math.max(0, (stu.hours || 0) - 1);
+      if (stu && type.key === "60") {
+        stu.hours = Math.max(0, (stu.hours || 0) - 1);
+        deductCoachHour(stu.owner, cls && cls.coach);
+      }
       createAntiReviews(rec);
       saveState();
     }
@@ -1500,7 +1509,10 @@
       };
       S.records.unshift(rec);
       if (cls) cls.status = "已完成";
-      if (stu && type.key === "60") stu.hours = Math.max(0, (stu.hours || 0) - 1);
+      if (stu && type.key === "60") {
+        stu.hours = Math.max(0, (stu.hours || 0) - 1);
+        deductCoachHour(stu.owner, cls && cls.coach);
+      }
       createAntiReviews(rec);
     }
     saveState();
@@ -1525,6 +1537,7 @@
     };
     const myStudents = visibleStudents();
     const full = isRealAdmin();
+    const meCoach = currentCoach();
     const myClasses = full ? S.classes : visibleClasses();
     const coachCount = full ? (S.coaches || []).length : myTeam().length;
     const today = todayKey();
@@ -1534,7 +1547,9 @@
     const kpis = [
       { label: "总学员", value: myStudents.length, unit: "人", sub: full ? "在读学员" : "我开通的学员", nav: "students", icon: ICON.users },
       { label: "教练", value: coachCount, unit: "人", sub: full ? "机构教练" : "我 + 我的助教", nav: null, icon: ICON.coach },
-      { label: "授权课程", value: S.courses.length, unit: "门", sub: "可用词库", nav: full ? "library" : null, icon: ICON.book },
+      full
+        ? { label: "授权课程", value: S.courses.length, unit: "门", sub: "可用词库", nav: "library", icon: ICON.book }
+        : { label: "剩余课时", value: (meCoach && meCoach.hours) || 0, unit: "节", sub: "我的教练课时", nav: null, icon: ICON.book },
     ];
     const classes = myClasses.slice().sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
     const rows = classes.length
@@ -1782,7 +1797,8 @@
       return (
         '<div class="mgmt-row">' +
         '<div class="mgmt-info"><span class="avatar">' + esc(c.name.slice(0, 1)) + "</span>" +
-        '<div class="mi-main"><b>' + esc(c.name) + "</b><small>登录账号 " + esc(c.name) + " · 名下排课 " + cnt + " 节" +
+        '<div class="mi-main"><b>' + esc(c.name) + "</b><small>登录账号 " + esc(c.name) +
+        (c.role === "teacher" ? " · 剩余课时 " + ((c.hours || 0)) + " 节" : " · 名下排课 " + cnt + " 节") +
         (c.role === "coach" ? " · 归属教练 " + esc(c.parent || "（未指定）") : "") +
         (c.joinedAt ? " · " + c.joinedAt : "") + "</small></div>" +
         ((!c.role || c.role === "admin")
@@ -1794,6 +1810,9 @@
               : '<span class="badge wait">助教</span>') +
         (S.user && S.user.name === c.name ? '<span class="badge done">当前登录</span>' : "") + "</div>" +
         '<div class="mgmt-ops">' +
+        (isRealAdmin() && c.role === "teacher"
+          ? '<button class="btn btn-primary" data-action="coach-recharge" data-id="' + esc(c.name) + '">充值</button>'
+          : "") +
         '<button class="btn" data-action="coach-edit" data-id="' + esc(c.name) + '">编辑</button>' +
         (S.user && S.user.name === c.name && !isRealAdmin()
           ? ""
@@ -1918,7 +1937,6 @@
       : '<div class="empty">还没有销课记录，上完课会自动生成</div>';
     return (
       pageHead("销课记录",
-        '<button class="btn btn-ghost" data-action="export-mini">导出给小程序</button>' +
         '<button class="btn btn-ghost" data-action="export-records">导出 CSV</button>') +
       '<div class="card"><div class="stat-grid">' +
       '<div class="stat"><b>' + c60 + "</b><span>60分钟课</span></div>" +
@@ -2274,6 +2292,30 @@
     s.rechargeLog.unshift({ date: todayKey(), count: n, note: $("#rNote").value.trim() });
     saveState(); closeModal(); render();
     toast("充值成功，+" + n + " 节");
+  }
+  /* ---------------- 教练课时充值（管理员给教练充课时） ---------------- */
+  function openCoachRecharge(name) {
+    const c = coachByName(name);
+    if (!c) return;
+    openModal(
+      '<div class="modal-head">充值课时 · ' + esc(c.name) + ' <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-body"><p style="color:var(--muted);font-size:13px;margin:0 0 12px">当前剩余 <b style="color:var(--brand)">' +
+      (c.hours || 0) + "</b> 节（教练可排课时数）</p>" +
+      '<div class="field"><label>充值课时数</label><input id="crCount" type="number" min="1" value="10" /></div>' +
+      '<div class="field"><label>备注</label><input id="crNote" placeholder="如：预付 50 节" /></div></div>' +
+      '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
+      '<button class="btn btn-primary" data-action="coach-recharge-save" data-id="' + esc(name) + '">确认充值</button></div>'
+    );
+  }
+  function saveCoachRecharge(name) {
+    const c = coachByName(name);
+    const n = parseInt($("#crCount").value, 10);
+    if (!c || !n || n <= 0) { toast("请输入正确的课时数"); return; }
+    c.hours = (c.hours || 0) + n;
+    c.rechargeLog = c.rechargeLog || [];
+    c.rechargeLog.unshift({ date: todayKey(), count: n, note: $("#crNote").value.trim() });
+    saveState(); closeModal(); render();
+    toast("已给 " + c.name + " 充值 " + n + " 节");
   }
   function openCourseGrant(id) {
     const s = studentById(id);
@@ -2692,6 +2734,8 @@
       case "lib-new": openCreateCourse(); break;
       case "coach-new": openCoachForm(null); break;
       case "coach-edit": openCoachForm(id); break;
+      case "coach-recharge": openCoachRecharge(id); break;
+      case "coach-recharge-save": saveCoachRecharge(id); break;
       case "coach-save": saveCoach(id); break;
       case "coach-del": delCoach(id); break;
       case "lib-save": saveCourse(); break;
