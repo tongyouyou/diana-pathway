@@ -3506,7 +3506,11 @@
       case "lib-save": saveCourse(); break;
       case "lib-view": openCourseWords(id); break;
       case "cw-add": openCourseWordNew(); break;
-      case "cw-edit": cwState.editIdx = parseInt(t.dataset.idx, 10); renderCourseWordsModal(); break;
+      case "cw-edit":
+        if (!isRealAdmin()) { toast("只有管理员可以改词库"); break; }
+        cwState.editIdx = parseInt(t.dataset.idx, 10);
+        renderCourseWordsModal();
+        break;
       case "cw-del": delCourseWord(parseInt(t.dataset.idx, 10)); break;
       case "cw-save": saveCourseWord(); break;
       case "cw-back": cwState.editIdx = -1; renderCourseWordsModal(); break;
