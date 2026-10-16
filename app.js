@@ -2358,7 +2358,18 @@
     if (S.coaches.length <= 1) { toast("至少要保留一个教练账号"); return; }
     if ((!c.role || c.role === "admin") && adminCount() <= 1) { toast("至少要保留一个管理员账号"); return; }
     const used = S.classes.filter((x) => x.coach === name).length;
-    if (confirm("确定删除教练「" + name + "」吗？" + (used ? "有 " + used + " 节排课挂在其名下。" : ""))) {
+    /* 删除前把「会一起没了的东西」都讲清楚，尤其别让剩下的课时被无声清掉 */
+    const hoursLeft = c.hours || 0;
+    const stuN = (S.students || []).filter((s) => (s.owner || "") === name).length;
+    const asstN = (S.coaches || []).filter((x) => x.parent === name).length;
+    const msg = "确定删除「" + name + "」这个账号吗？\n\n" +
+      (hoursLeft > 0 ? "⚠ 该账号还有 " + hoursLeft + " 节课时，删除后会一起清掉，不会补回来。\n\n" : "") +
+      "累计充值：" + coachTotalHours(c) + " 节\n" +
+      (stuN ? "名下学员：" + stuN + " 名（学员会保留，但所属教练还显示这个名字）\n" : "") +
+      (used ? "名下排课：" + used + " 节（会保留）\n" : "") +
+      (asstN ? "名下助教：" + asstN + " 个（会保留，但归属失效）\n" : "") +
+      "\n删除后无法撤销（除非有数据备份）。";
+    if (confirm(msg)) {
       S.coaches = S.coaches.filter((x) => x.name !== name);
       saveState();
       render();
