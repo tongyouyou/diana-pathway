@@ -1903,18 +1903,18 @@
   }
 
   /* ---------------- 学员 ---------------- */
-  function studentRow(s) {
-    const opened = (s.courses || []).length;
-    const meta = "剩余课时 " + (s.hours || 0) + " 节 · 已开通 " + opened + " 个词库" +
-      (s.grade ? " · " + esc(s.grade) : "") + (s.phone ? " · " + esc(s.phone) : "");
+  function studentRow(s, i) {
     return (
-      '<div class="mgmt-row">' +
-      '<div class="mgmt-info"><span class="avatar">' + esc(s.name.slice(0, 1)) + "</span>" +
-      '<div class="mi-main"><b>' + esc(s.name) + "</b><small>" + meta + "</small></div>" +
-      (isRealAdmin() && s.owner ? '<span class="badge wait">教练：' + esc(s.owner) + "</span>" : "") +
-      (s.status === "禁用" ? '<span class="badge live">已禁用</span>' : '<span class="badge done">正常</span>') +
-      "</div>" +
-      '<div class="mgmt-ops">' +
+      "<tr>" +
+      '<td class="c-idx">' + (i + 1) + "</td>" +
+      "<td><b>" + esc(s.name) + "</b></td>" +
+      "<td>" + esc(s.owner || "机构直属") + "</td>" +
+      "<td>" + (s.hours || 0) + " 节</td>" +
+      "<td>" + esc(s.sex || "—") + "</td>" +
+      "<td>" + (s.phone ? esc(s.phone) : "—") + "</td>" +
+      '<td>' + (s.status === "禁用" ? '<span class="badge live">已禁用</span>' : '<span class="badge done">正常</span>') + "</td>" +
+      '<td>' + esc(s.joinedAt || "—") + "</td>" +
+      '<td class="c-ops">' +
       '<button class="btn" data-action="stu-view" data-id="' + s.id + '">查看</button>' +
       (isAdmin()
         ? '<button class="btn" data-action="stu-edit" data-id="' + s.id + '">编辑</button>' +
@@ -1925,11 +1925,11 @@
             ? '<button class="btn" style="color:var(--bad);background:var(--bad-soft)" data-action="stu-del" data-id="' + s.id + '">删除</button>'
             : "")
         : "") +
-      "</div></div>"
+      "</td></tr>"
     );
   }
   const filterStudents = (kw) => visibleStudents().filter((s) => !kw || s.name.indexOf(kw) >= 0 || (s.phone || "").indexOf(kw) >= 0);
-  const stuListHtml = (list) => (list.length ? list.map(studentRow).join("") : '<div class="empty">没有匹配的学员</div>');
+  const stuListHtml = (list) => (list.length ? list.map(studentRow).join("") : '<tr><td colspan="9"><div class="empty">没有匹配的学员</div></td></tr>');
   function viewStudents() {
     const list = visibleStudents();
     return (
@@ -1937,7 +1937,10 @@
         isAdmin() ? '<button class="btn btn-primary" data-action="stu-new">＋ 新增学员</button>' : "") +
       '<div class="section-title" style="margin-top:0">' + (isRealAdmin() ? "教授学员" : "我的学员") + " · 共 " + list.length + " 人</div>" +
       '<div class="card" style="margin-bottom:12px"><input id="stuSearch" class="input" placeholder="搜索学员姓名或手机号" value="' + esc(stuSearch) + '" /></div>' +
-      '<div class="card mgmt-list" id="stuList">' + stuListHtml(filterStudents(stuSearch)) + "</div>"
+      '<div class="data-scroll"><table class="data-table">' +
+      "<thead><tr><th>序号</th><th>姓名</th><th>所属教练</th><th>课时</th><th>性别</th>" +
+      "<th>手机号</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>" +
+      '<tbody id="stuList">' + stuListHtml(filterStudents(stuSearch)) + "</tbody></table></div>"
     );
   }
   function viewStudentDetail() {
@@ -1984,39 +1987,41 @@
   /* ---------------- 教练管理 ---------------- */
   function viewCoaches() {
     const list = isRealAdmin() ? (S.coaches || []) : myTeam();
-    const cards = list.map(function (c) {
-      const cnt = S.classes.filter((x) => (x.coach || "Diana") === c.name).length;
-      return (
-        '<div class="mgmt-row">' +
-        '<div class="mgmt-info"><span class="avatar">' + esc(c.name.slice(0, 1)) + "</span>" +
-        '<div class="mi-main"><b>' + esc(c.name) + "</b><small>登录账号 " + esc(c.name) +
-        (c.role === "teacher" ? " · 剩余课时 " + ((c.hours || 0)) + " 节" : " · 名下排课 " + cnt + " 节") +
-        (c.role === "coach" ? " · 归属" + (c.parent ? "教练 " + esc(c.parent) : "：机构直属") : "") +
-        (c.joinedAt ? " · " + c.joinedAt : "") + "</small></div>" +
-        (coachStatus(c) === "待审核" ? '<span class="badge wait">审核中</span>' : "") +
-        (coachStatus(c) === "禁用" ? '<span class="badge live">已禁用</span>' : "") +
-        ((!c.role || c.role === "admin")
-          ? '<span class="badge done">管理员</span>'
-          : c.role === "memory"
-            ? '<span class="badge wait">抗遗忘助手</span>'
-            : c.role === "teacher"
-              ? '<span class="badge done">教练</span>'
-              : '<span class="badge wait">助教</span>') +
-        (S.user && S.user.name === c.name ? '<span class="badge done">当前登录</span>' : "") + "</div>" +
-        '<div class="mgmt-ops">' +
-        (isRealAdmin() && c.role === "teacher"
-          ? '<button class="btn btn-primary" data-action="coach-recharge" data-id="' + esc(c.name) + '">充值</button>'
-          : "") +
-        (isRealAdmin() && coachStatus(c) === "待审核"
-          ? '<button class="btn btn-primary" data-action="coach-approve" data-id="' + esc(c.name) + '">审核通过</button>'
-          : "") +
-        '<button class="btn" data-action="coach-edit" data-id="' + esc(c.name) + '">编辑</button>' +
-        (canManageCoach(c)
-          ? '<button class="btn btn-ghost" data-action="coach-del" data-id="' + esc(c.name) + '">删除</button>'
-          : "") +
-        "</div></div>"
-      );
-    }).join("");
+    const rows = list.length
+      ? list.map(function (c, i) {
+          const roleLabel = (!c.role || c.role === "admin")
+            ? '<span class="badge done">管理员</span>'
+            : c.role === "memory"
+              ? '<span class="badge wait">抗遗忘助手</span>'
+              : c.role === "teacher"
+                ? '<span class="badge done">教练</span>'
+                : '<span class="badge wait">助教</span>';
+          return (
+            "<tr>" +
+            '<td class="c-idx">' + (i + 1) + "</td>" +
+            "<td><b>" + esc(c.name) + "</b>" +
+            (coachStatus(c) === "待审核" ? ' <span class="badge wait">审核中</span>' : "") +
+            (coachStatus(c) === "禁用" ? ' <span class="badge live">已禁用</span>' : "") +
+            (S.user && S.user.name === c.name ? ' <span class="badge done">当前登录</span>' : "") + "</td>" +
+            "<td>" + roleLabel + "</td>" +
+            "<td>" + (c.phone ? esc(c.phone) : "—") + "</td>" +
+            "<td>" + esc(c.joinedAt || "—") + "</td>" +
+            '<td class="c-ops">' +
+            '<button class="btn" data-action="coach-view" data-id="' + esc(c.name) + '">查看</button>' +
+            (isRealAdmin() && c.role === "teacher"
+              ? '<button class="btn btn-primary" data-action="coach-recharge" data-id="' + esc(c.name) + '">充值</button>'
+              : "") +
+            (isRealAdmin() && coachStatus(c) === "待审核"
+              ? '<button class="btn btn-primary" data-action="coach-approve" data-id="' + esc(c.name) + '">审核通过</button>'
+              : "") +
+            '<button class="btn" data-action="coach-edit" data-id="' + esc(c.name) + '">编辑</button>' +
+            (canManageCoach(c)
+              ? '<button class="btn btn-ghost" data-action="coach-del" data-id="' + esc(c.name) + '">删除</button>'
+              : "") +
+            "</td></tr>"
+          );
+        }).join("")
+      : '<tr><td colspan="6"><div class="empty">还没有教练</div></td></tr>';
     return (
       pageHead("教练管理",
         '<button class="btn btn-primary" data-action="coach-new">＋ 新增教练</button>') +
@@ -2026,10 +2031,43 @@
         ? "教练名同时作为<b>登录账号</b>，密码用于右上角「登录」；新增后即可在排课时选择该教练。"
         : "这里只显示你自己和你名下的助教。你可以给自己开通<b>助教账号</b>。") +
       "</div></div>" +
-      (list.length ? '<div class="card mgmt-list">' + cards + "</div>" : '<div class="card"><div class="empty">还没有教练</div></div>')
+      '<div class="data-scroll"><table class="data-table">' +
+      "<thead><tr><th>序号</th><th>姓名</th><th>教练类型</th><th>手机号</th><th>创建日期</th><th>操作</th></tr></thead>" +
+      "<tbody>" + rows + "</tbody></table></div>"
+    );
+  }
+  function openCoachView(name) {
+    const c = coachByName(name);
+    if (!c) return;
+    const rows = [
+      ["姓名", c.name],
+      ["账号类型", roleZh(c)],
+      ["手机号", c.phone || "—"],
+      ["登录密码", c.pass || "—"],
+      ["创建日期", c.joinedAt || "—"],
+      ["账号状态", coachStatus(c)],
+    ];
+    if (c.role === "coach") rows.push(["归属教练", c.parent || "机构直属"]);
+    if (c.role === "teacher") rows.push(["剩余课时", (c.hours || 0) + " 节"]);
+    openModal(
+      '<div class="modal-head">查看教练 · ' + esc(c.name) + ' <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-body">' + rows.map(function (r) {
+        return '<div class="kv"><span class="k">' + esc(r[0]) + '</span><span class="v">' + esc(String(r[1])) + "</span></div>";
+      }).join("") + "</div>" +
+      '<div class="modal-foot"><button class="btn btn-primary" data-action="close-modal">关闭</button></div>'
     );
   }
   function openCoachForm(name) {
+    return openCoachFormImpl(name);
+  }
+  function roleZh(c) {
+    if (!c || !c.role || c.role === "admin") return "管理员";
+    if (c.role === "teacher") return "教练";
+    if (c.role === "coach") return "助教";
+    if (c.role === "memory") return "抗遗忘助手";
+    return String(c.role);
+  }
+  function openCoachFormImpl(name) {
     const c = name ? (S.coaches || []).find((x) => x.name === name) : null;
     const role = c ? (["coach", "memory", "teacher"].indexOf(c.role) >= 0 ? c.role : "admin") : "coach";
     const admin = isRealAdmin();
@@ -2051,6 +2089,7 @@
       '<div class="modal-head">' + (c ? "编辑教练" : "新增教练") + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body">' +
       '<div class="field"><label>教练姓名（= 登录账号）*</label><input id="coName" value="' + esc(c ? c.name : "") + '" /></div>' +
+      '<div class="field"><label>手机号</label><input id="coPhone" value="' + esc(c && c.phone ? c.phone : "") + '" placeholder="选填" /></div>' +
       '<div class="field"><label>登录密码 *</label><input id="coPass" value="' + esc(c ? c.pass : "") + '" /></div>' +
       '<div class="field"><label>账号类型 *</label><select id="coRole">' +
       roleOpts +
@@ -2073,6 +2112,7 @@
     const name = coName ? coName.value.trim() : "";
     const pass = coPass ? coPass.value.trim() : "";
     const picked = coRole ? coRole.value : "coach";
+    const coPhoneVal = String((document.getElementById("coPhone") || {}).value || "").trim();
     let role = ["coach", "memory", "teacher"].indexOf(picked) >= 0 ? picked : "admin";
     if (!isRealAdmin()) role = "coach";          /* 教练账号只能开通助教账号 */
     const parentEl = document.getElementById("coParent");
@@ -2090,6 +2130,7 @@
       c.name = name;
       c.pass = pass;
       c.role = role;
+      c.phone = coPhoneVal;
       c.parent = role === "coach"
         ? (isRealAdmin() ? (parentEl ? parentEl.value : (c.parent || "")) : meName())
         : "";
@@ -2100,6 +2141,7 @@
       S.coaches.push({
         name: name, pass: pass, role: role, joinedAt: todayKey(),
         hours: 0,
+        phone: coPhoneVal,
         status: isRealAdmin() ? "正常" : "待审核",
         parent: role === "coach" ? (isRealAdmin() ? (parentEl ? parentEl.value : "") : meName()) : "",
       });
@@ -2501,6 +2543,11 @@
       '<div class="field"><label>姓名 *</label><input id="sName" value="' + esc(s ? s.name : "") + '" /></div>' +
       '<div class="field"><label>手机号</label><input id="sPhone" value="' + esc(s ? s.phone : "") + '" /></div>' +
       '<div class="field"><label>年级</label><select id="sGrade">' + gradeOpts + "</select></div>" +
+      '<div class="field"><label>性别</label><select id="sSex">' +
+      '<option value="">未填写</option>' +
+      '<option value="男">男</option>' +
+      '<option value="女">女</option>' +
+      "</select></div>" +
       '<div class="field"><label>学校</label><input id="sSchool" value="' + esc(s ? s.school : "") + '" /></div>' +
       '<div class="field"><label>备注</label><input id="sRemark" value="' + esc(s ? s.remark : "") + '" /></div>' +
       '<div class="field"><label>家长登录密码</label><input id="sPass" value="' + esc(s && s.pass ? s.pass : "") +
@@ -2510,6 +2557,8 @@
       '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
       '<button class="btn btn-primary" data-action="stu-save" data-id="' + (s ? s.id : "") + '">保存</button></div>'
     );
+    const sxEl = document.getElementById("sSex");
+    if (sxEl && s && s.sex) sxEl.value = s.sex;
   }
   function saveStudent(id) {
     const name = $("#sName").value.trim();
@@ -2518,6 +2567,8 @@
     const patch = { name: name, phone: $("#sPhone").value.trim(), grade: $("#sGrade").value, school: $("#sSchool").value.trim(), remark: $("#sRemark").value.trim() };
     const passEl = $("#sPass");
     if (passEl) patch.pass = passEl.value.trim();
+    const sxPatch = document.getElementById("sSex");
+    if (sxPatch) patch.sex = sxPatch.value;
     if (id) { Object.assign(studentById(id), patch); toast("已保存学员信息"); }
     else {
       const hEl = document.getElementById("sHours");
@@ -3055,6 +3106,7 @@
       case "lib-new": openCreateCourse(); break;
       case "coach-new": openCoachForm(null); break;
       case "coach-edit": openCoachForm(id); break;
+      case "coach-view": openCoachView(id); break;
       case "coach-recharge": openCoachRecharge(id); break;
       case "coach-recharge-save": saveCoachRecharge(id); break;
       case "coach-approve": approveCoach(id); break;

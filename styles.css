@@ -188,33 +188,33 @@ body {
   .lib-search { grid-template-columns: 1fr 1fr; }
   .lib-search.lib-search-3 { grid-template-columns: 1fr; }
 }
-.rec-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
-.rec-table {
+.rec-scroll, .data-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+.rec-table, .data-table {
   border-collapse: separate; border-spacing: 0;
   width: max-content; min-width: 100%;
   background: #fff; border: 1px solid #eef0f6; border-radius: 16px;
   box-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 8px 24px rgba(16, 24, 40, .05);
 }
-.rec-table th, .rec-table td {
+.rec-table th, .rec-table td, .data-table th, .data-table td {
   padding: 12px 16px; text-align: left; white-space: nowrap; vertical-align: middle;
 }
-.rec-table thead th {
+.rec-table thead th, .data-table thead th {
   position: sticky; top: 0; z-index: 3; background: #fafbff;
   font-size: 12.5px; font-weight: 700; color: #667085;
   border-bottom: 1px solid #eef0f6;
 }
-.rec-table tbody td { font-size: 13.5px; color: #1e2130; border-bottom: 1px solid #f2f4f7; }
-.rec-table tbody tr:last-child td { border-bottom: none; }
-.rec-table tbody tr:hover td { background: #fafbff; }
-.rec-table td.c-idx { color: #98a2b3; font-variant-numeric: tabular-nums; }
-.rec-table td.c-ops .btn { padding: 5px 11px; font-size: 12.5px; }
+.rec-table tbody td, .data-table tbody td { font-size: 13.5px; color: #1e2130; border-bottom: 1px solid #f2f4f7; }
+.rec-table tbody tr:last-child td, .data-table tbody tr:last-child td { border-bottom: none; }
+.rec-table tbody tr:hover td, .data-table tbody tr:hover td { background: #fafbff; }
+.rec-table td.c-idx, .data-table td.c-idx { color: #98a2b3; font-variant-numeric: tabular-nums; }
+.rec-table td.c-ops .btn, .data-table td.c-ops .btn { padding: 5px 11px; font-size: 12.5px; }
 /* 「操作」列吸在右侧 */
-.rec-table th:last-child, .rec-table td:last-child {
+.rec-table th:last-child, .rec-table td:last-child, .data-table th:last-child, .data-table td:last-child {
   position: sticky; right: 0; z-index: 2; background: #fff;
   box-shadow: -8px 0 12px -8px rgba(16, 24, 40, .18);
 }
-.rec-table thead th:last-child { background: #fafbff; z-index: 4; }
-.rec-table tbody tr:hover td:last-child { background: #fafbff; }
+.rec-table thead th:last-child, .data-table thead th:last-child { background: #fafbff; z-index: 4; }
+.rec-table tbody tr:hover td:last-child, .data-table tbody tr:hover td:last-child { background: #fafbff; }
 }
 
 .card {
