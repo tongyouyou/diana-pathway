@@ -1910,6 +1910,43 @@
     render();
     toast("已更新分类：" + c.name);
   }
+  /* 词库改名（仅管理员）：只换名字，词库内容 / 已开通的学员都不受影响 */
+  function openLibRename(id) {
+    const c = courseById(id);
+    if (!c) return;
+    if (!isRealAdmin()) { toast("只有管理员可以改词库名字"); return; }
+    openModal(
+      '<div class="modal-head">词库改名 <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-body">' +
+      '<p style="color:var(--muted);font-size:12.5px;margin:0 0 10px">只改名字，词库里的 ' + courseSize(c) +
+      " 个单词和已开通的学员都不受影响。</p>" +
+      '<div class="field"><label>词库名称 *</label><input id="rnName" value="' + esc(c.name) + '" /></div>' +
+      "</div>" +
+      '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
+      '<button class="btn btn-primary" data-action="lib-rename-save" data-id="' + id + '">保存</button></div>'
+    );
+  }
+  function saveLibRename(id) {
+    const c = courseById(id);
+    if (!c) return;
+    if (!isRealAdmin()) { toast("只有管理员可以改词库名字"); return; }
+    const el = document.getElementById("rnName");
+    const name = el ? el.value.trim() : "";
+    if (!name) { toast("请填写词库名称"); return; }
+    if (name === c.name) { closeModal(); return; }
+    if (S.courses.some((x) => x.id !== id && x.name === name)) { toast("已经有一个同名词库了，换个名字吧"); return; }
+    const old = c.name;
+    /* 改名前先把当前分类固定下来，否则分类会跟着新名字重新猜 */
+    const m = courseMeta(c);
+    if (!c.book) c.book = m.book;
+    if (!c.stage) c.stage = m.stage;
+    if (!c.kind) c.kind = m.kind;
+    c.name = name;
+    saveState();
+    closeModal();
+    render();
+    toast("已改名：" + old + " → " + name);
+  }
   function libFiltered() {
     const f = libFilter;
     return S.courses.map((c) => ({ c: c, m: courseMeta(c) })).filter(function (x) {
@@ -1947,6 +1984,7 @@
         (isRealAdmin() || (c.createdBy && c.createdBy === meName())
           ? '<button class="btn" data-action="lib-meta" data-id="' + c.id + '">编辑分类</button>'
           : "") +
+        (isRealAdmin() ? '<button class="btn" data-action="lib-rename" data-id="' + c.id + '">改名</button>' : "") +
         (canDel ? '<button class="btn btn-ghost" data-action="lib-remove" data-id="' + c.id + '">删除</button>' : "") +
         "</div></div></div>"
       );
@@ -3381,6 +3419,8 @@
       case "lib-view": openCourseWords(id); break;
       case "lib-meta": openLibMeta(id); break;
       case "lib-meta-save": saveLibMeta(id); break;
+      case "lib-rename": openLibRename(id); break;
+      case "lib-rename-save": saveLibRename(id); break;
       case "lib-remove": removeCourse(id); break;
       case "clear-all":
         if (confirm("将清空：全部排课、销课记录、错题本、学习进度。\n保留：学员名单、全部词库、教练账号和当前登录。\n\n确定执行吗？")) {
