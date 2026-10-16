@@ -2334,8 +2334,10 @@
     /* 学员的课时从「该学员所属教练」的课时里出 */
     const owner = coachByName(s.owner || "");
     if (owner && owner.role === "teacher") {
-      if ((owner.hours || 0) <= 0) { toast(owner.name + " 的课时已用完，请先让管理员充值"); return; }
-      owner.hours = Math.max(0, (owner.hours || 0) - n);
+      const left = owner.hours || 0;
+      if (left <= 0) { toast(owner.name + " 的课时已用完，请先让管理员充值"); return; }
+      if (left < n) { toast(owner.name + " 只剩 " + left + " 节，本次最多充 " + left + " 节"); return; }
+      owner.hours = left - n;
     }
     s.hours = (s.hours || 0) + n;
     s.rechargeLog = s.rechargeLog || [];
