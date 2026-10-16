@@ -2120,7 +2120,8 @@
             "<td><b>" + esc(c.name) + "</b>" +
             (S.user && S.user.name === c.name ? ' <span class="badge done">当前登录</span>' : "") + "</td>" +
             "<td>" + roleLabel + "</td>" +
-            "<td>" + taughtCount(c.name) + " 节</td>" +
+            "<td>" + coachTotalHours(c) + " 节</td>" +
+            "<td>" + (c.hours || 0) + " 节</td>" +
             "<td>" + coachStatusBadge(c) + "</td>" +
             "<td>" + esc(c.joinedAt || "—") + "</td>" +
             '<td class="c-ops">' +
@@ -2138,7 +2139,7 @@
             "</td></tr>"
           );
         }).join("")
-      : '<tr><td colspan="7"><div class="empty">还没有教练</div></td></tr>';
+      : '<tr><td colspan="8"><div class="empty">还没有教练</div></td></tr>';
     return (
       pageHead("教练管理",
         '<button class="btn btn-primary" data-action="coach-new">＋ 新增教练</button>') +
@@ -2149,7 +2150,7 @@
         : "这里只显示你自己和你名下的助教。你可以给自己开通<b>助教账号</b>。") +
       "</div></div>" +
       '<div class="data-scroll"><table class="data-table">' +
-      "<thead><tr><th>序号</th><th>姓名</th><th>教练类型</th><th>累计课时</th><th>账号状态</th><th>创建日期</th><th>操作</th></tr></thead>" +
+      "<thead><tr><th>序号</th><th>姓名</th><th>教练类型</th><th>累计课时</th><th>剩余课时</th><th>账号状态</th><th>创建日期</th><th>操作</th></tr></thead>" +
       "<tbody>" + rows + "</tbody></table></div>"
     );
   }
