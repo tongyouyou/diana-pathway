@@ -2853,11 +2853,54 @@
     openModal(
       '<div class="modal-head">更多操作 <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body"><div class="li-main" style="margin-bottom:12px"><b>' + esc(s.name) + "</b><small>当前状态：" +
-      (disabled ? "已禁用" : "正常") + "</small></div>" +
+      (disabled ? "已禁用" : "正常") + " · 剩余课时 " + (s.hours || 0) + "</small></div>" +
+      '<button class="btn btn-ghost btn-block" style="margin-bottom:10px" data-action="stu-refund" data-id="' + id + '">课时退费</button>' +
       '<button class="btn ' + (disabled ? "btn-primary" : "btn-ghost") + ' btn-block" data-action="stu-toggle-status" data-id="' + id + '">' +
       (disabled ? "启用此账号" : "禁用此账号") + "</button></div>" +
       '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">关闭</button></div>'
     );
+  }
+  /* 课时退费：学员课时 −N，同时把 N 节退回该学员的归属教练（可充值课时 +N） */
+  function openStuRefund(id) {
+    const s = studentById(id);
+    if (!s) return;
+    const owner = coachByName(s.owner || "");
+    const toCoach = !!(owner && owner.role === "teacher");
+    openModal(
+      '<div class="modal-head">课时退费 · ' + esc(s.name) + ' <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-body">' +
+      '<p style="color:var(--muted);font-size:13px;margin:0 0 10px">该学员剩余课时 <b style="color:var(--brand)">' +
+      (s.hours || 0) + "</b> 节</p>" +
+      '<p style="color:var(--muted);font-size:12.5px;margin:0 0 12px">' +
+      (toCoach
+        ? "退掉的课时会加回教练 <b>" + esc(owner.name) + "</b> 的可充值课时（现在 " + (owner.hours || 0) + " 节）。"
+        : "该学员是机构直属，没有归属教练，退掉的课时不会加回任何教练。") +
+      "</p>" +
+      '<div class="field"><label>退费课时数</label><input id="rfCount" type="number" min="1" value="1" /></div>' +
+      '<div class="field"><label>备注</label><input id="rfNote" placeholder="如：不再上课，退回 20 节" /></div>' +
+      "</div>" +
+      '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
+      '<button class="btn btn-primary" data-action="stu-refund-save" data-id="' + id + '">确认退费</button></div>'
+    );
+  }
+  function saveStuRefund(id) {
+    const s = studentById(id);
+    if (!s) return;
+    const n = parseInt($("#rfCount").value, 10);
+    if (!n || n <= 0) { toast("请输入正确的课时数"); return; }
+    const left = s.hours || 0;
+    if (left <= 0) { toast(s.name + " 没有可退的课时"); return; }
+    if (n > left) { toast(s.name + " 只剩 " + left + " 节，本次最多退 " + left + " 节"); return; }
+    const noteEl = $("#rfNote");
+    const note = noteEl ? noteEl.value.trim() : "";
+    s.hours = left - n;
+    const owner = coachByName(s.owner || "");
+    const toCoach = !!(owner && owner.role === "teacher");
+    if (toCoach) owner.hours = (owner.hours || 0) + n;
+    s.rechargeLog = s.rechargeLog || [];
+    s.rechargeLog.unshift({ date: todayKey(), count: -n, note: note ? "退费：" + note : "退费" });
+    saveState(); closeModal(); render();
+    toast("已退 " + n + " 节" + (toCoach ? "，已加回 " + owner.name : ""));
   }
   function openSudoku() {
     const groups = groupsOf(S.wrong, 5);
@@ -3221,6 +3264,8 @@
       case "stu-recharge": openRecharge(id); break;
       case "recharge-save": saveRecharge(id); break;
       case "stu-course": openCourseGrant(id); break;
+      case "stu-refund": openStuRefund(id); break;
+      case "stu-refund-save": saveStuRefund(id); break;
       case "grant-toggle": {
         const cid = t.dataset.id;
         const i = grantDraft.indexOf(cid);
