@@ -2713,6 +2713,20 @@
       case "save-schedule": saveSchedule(id); break;
       case "start-class": {
         const c = S.classes.find((x) => x.id === id);
+        const stuS = c ? studentById(c.studentId) : null;
+        /* 上课前再查一次课时：这节课还没占课时的（老数据），先补占一节；没课时就不让上课 */
+        if (c && c.status !== "已完成" && !c.occupied) {
+          if (!stuS || (stuS.hours || 0) <= 0) {
+            const otherPending = (S.classes || []).filter((x) =>
+              x.studentId === c.studentId && x.id !== c.id && x.status !== "已完成" && x.occupied).length;
+            toast((stuS ? stuS.name : "该学员") + " 课时已用完，无法上课" +
+              (otherPending ? "；可删除其他占课时的排课释放课时" : "，请先给学员充值"));
+            break;
+          }
+          occupyStudentHour(stuS);
+          c.occupied = true;
+          saveState();
+        }
         pending = { studentId: c ? c.studentId : null, classId: id };
         lesson = null; currentCourseId = null;
         route.name = "teach"; render();
