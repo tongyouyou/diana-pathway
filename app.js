@@ -977,7 +977,7 @@
           classCard(c, allMode) + "</div>").join("") + "</div>"
       : '<div class="card"><div class="empty">暂无更多课表~</div></div>';
     return (
-      pageHead("课表信息") +
+      pageHead("课表信息", '<button class="btn" data-action="practice-open">教学练习</button>') +
       '<div class="sched-page">' +
       '<div class="weekbar"><div class="month">' + monthLabel + "</div>" +
       '<div class="nav"><button data-action="week-prev">‹</button><button data-action="week-next">›</button></div></div>' +
@@ -996,6 +996,55 @@
   /* ---------------- 体验课词库（不指定学员，所有学员上体验课时都能打开） ---------------- */
   function trialCourses() {
     return (S.courses || []).filter((c) => c.trial);
+  }
+  /* ---------------- 教学练习（拿体验课词库练手，不生成任何记录） ---------------- */
+  function viewPracticeList() {
+    const list = trialCourses();
+    const cards = list.length
+      ? list.map(function (c) {
+          return '<div class="card"><div class="course-card">' +
+            '<div class="ci">' + esc(c.name.slice(0, 2)) + "</div>" +
+            '<div class="cm"><b>' + esc(c.name) + "</b>" +
+            "<small>共 " + courseSize(c) + " 个单词 · 体验课词库</small></div>" +
+            '<button class="btn btn-primary" data-action="practice-start" data-id="' + c.id + '">开始练习</button>' +
+            "</div></div>";
+        }).join("")
+      : '<div class="card"><div class="empty">还没有体验课词库，请让管理员到「词库信息」里导入</div></div>';
+    return (
+      pageHead("教学练习", '<button class="btn btn-ghost" data-action="practice-back">返回课表</button>') +
+      '<div class="card" style="margin-bottom:12px"><div style="font-size:13px;color:var(--muted);line-height:1.8">' +
+      "选一个体验课词库开始练手：流程和上课完全一样（学新 → 识记 → 听音识义 → 剪纸盒 → 小结 → 学后检测），" +
+      "但<b>不会生成销课记录，也不会生成抗遗忘</b>，不算到任何学员头上，随便练。" +
+      "</div></div>" +
+      '<div class="cards">' + cards + "</div>"
+    );
+  }
+  /* 教学练习：和上课同一套引擎，但不绑定学员 / 排课，所有结果都不落库 */
+  function startPractice(courseId) {
+    const c = courseById(courseId);
+    if (!c) return;
+    const pool = courseWords(c).slice();
+    if (!pool.length) { toast("这个词库还没有单词"); return; }
+    pending = null;
+    currentCourseId = null;
+    lesson = {
+      courseId: courseId, studentId: null, classId: null, practice: true,
+      mode: "new", phase: "pretest",
+      all: pool, gridState: {}, marks: {}, gridIdx: 0,
+      groups: [], blocks: [], bi: 0,
+      stage: "", list: [], idx: 0, revealed: {},
+      listenMark: {}, cutMark: {}, result: {},
+    };
+    route.name = "lesson";
+    render();
+  }
+  function exitPractice() {
+    lesson = null;
+    currentCourseId = null;
+    pending = null;
+    route.name = "schedule";
+    render();
+    toast("教学练习结束（不会生成记录）");
   }
   function classIsTrial(classId) {
     const c = (S.classes || []).find((x) => x.id === classId);
@@ -1333,6 +1382,7 @@
     enterBlock();
   }
   function saveKnownMarks() {
+    if (lesson.practice) return;
     if (lesson.mode === "review" || !lesson.courseId) return;
     const prog = courseProgress(lesson.studentId, lesson.courseId);
     const kset = {};
@@ -1350,14 +1400,18 @@
     toast("已切换词库");
   }
   function confirmAllKnown() {
+    const practice = !!(lesson && lesson.practice);
     openModal(
       '<div class="modal-head">温馨提示 <span class="x" data-action="close-modal">×</span></div>' +
-      '<div class="modal-body"><p style="font-size:14px;margin:0">这个词库剩下的单词学生都认识了，是否完成并下课？</p></div>' +
+      '<div class="modal-body"><p style="font-size:14px;margin:0">' +
+      (practice ? "剩下的单词都标记成「认识」了，是否结束本次练习？" : "这个词库剩下的单词学生都认识了，是否完成并下课？") +
+      "</p></div>" +
       '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">继续看看</button>' +
-      '<button class="btn btn-primary" data-action="do-finish-all">确认完成</button></div>'
+      '<button class="btn btn-primary" data-action="do-finish-all">' + (practice ? "结束练习" : "确认完成") + "</button></div>"
     );
   }
   function finishAllKnown() {
+    if (lesson.practice) { exitPractice(); return; }
     saveKnownMarks();
     const stu = studentById(lesson.studentId);
     const cls = S.classes.find((x) => x.id === lesson.classId);
@@ -1601,8 +1655,10 @@
       '<div class="o brand"><b>' + (words.length ? Math.round((ok / words.length) * 100) : 0) + "%</b><span>正确率</span></div></div></div>" +
       '<div class="card"><div class="section-title" style="margin-top:0">需加强的单词（' + wrong.length + "）</div>" + rows + "</div>" +
       '<div style="display:flex;gap:10px;margin-top:12px">' +
-      '<button class="btn btn-ghost" style="flex:1;padding:13px" data-action="result-continue">继续学习</button>' +
-      '<button class="btn btn-primary" style="flex:1;padding:13px" data-action="result-finish">创建抗遗忘并下课</button></div>'
+      '<button class="btn btn-ghost" style="flex:1;padding:13px" data-action="result-continue">' +
+      (lesson.practice ? "再练一轮" : "继续学习") + "</button>" +
+      '<button class="btn btn-primary" style="flex:1;padding:13px" data-action="result-finish">' +
+      (lesson.practice ? "结束练习" : "创建抗遗忘并下课") + "</button></div>"
     );
   }
 
@@ -1619,6 +1675,7 @@
 
   /* ---- 结算 ---- */
   function persistRound() {
+    if (lesson.practice) return;
     const words = lesson.postWords || lesson.runWords || [];
     const wrong = lesson.postWrong || [];
     const prog = courseProgress(lesson.studentId, lesson.courseId);
@@ -1638,6 +1695,7 @@
     return courseWords(courseById(courseId)).filter((w) => !done[w.w]);
   }
   function finishWithAnti() {
+    if (lesson.practice) { exitPractice(); return; }
     const words = lesson.postWords || lesson.runWords || [];
     const wrong = lesson.postWrong || [];
     wrong.forEach(function (w) {
@@ -1773,6 +1831,44 @@
       arr.map((v) => '<option value="' + v + '"' + (cur === v ? " selected" : "") + ">" + v + "</option>").join("") +
       "</select>";
   }
+  /* 单选下拉（编辑分类用，不带「全部」） */
+  function libSelectOne(id, arr, cur) {
+    return '<select id="' + id + '" class="input">' +
+      arr.map((v) => '<option value="' + v + '"' + (cur === v ? " selected" : "") + ">" + v + "</option>").join("") +
+      "</select>";
+  }
+  const canEditLibMeta = (c) => isRealAdmin() || !!(c && c.createdBy && c.createdBy === meName());
+  function openLibMeta(id) {
+    const c = courseById(id);
+    if (!c) return;
+    if (!canEditLibMeta(c)) { toast("只有管理员可以修改分类"); return; }
+    const m = courseMeta(c);
+    openModal(
+      '<div class="modal-head">编辑分类 · ' + esc(c.name) + ' <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-body">' +
+      '<p style="color:var(--muted);font-size:12.5px;margin:0 0 10px">这里改的是「词库信息」顶部搜索用的分类，改完能搜得更准。</p>' +
+      '<div class="field"><label>教材版本</label>' + libSelectOne("mBook", COURSE_BOOKS, m.book) + "</div>" +
+      '<div class="field"><label>学段</label>' + libSelectOne("mStage", COURSE_STAGES, m.stage) + "</div>" +
+      '<div class="field"><label>课程类型</label>' + libSelectOne("mKind", COURSE_KINDS, m.kind) + "</div>" +
+      "</div>" +
+      '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
+      '<button class="btn btn-primary" data-action="lib-meta-save" data-id="' + id + '">保存分类</button></div>'
+    );
+  }
+  function saveLibMeta(id) {
+    const c = courseById(id);
+    if (!c) return;
+    if (!canEditLibMeta(c)) { toast("只有管理员可以修改分类"); return; }
+    const m = courseMeta(c);
+    const pick = (elId, cur) => { const el = document.getElementById(elId); return (el && el.value) ? el.value : cur; };
+    c.book = pick("mBook", m.book);
+    c.stage = pick("mStage", m.stage);
+    c.kind = pick("mKind", m.kind);
+    saveState();
+    closeModal();
+    render();
+    toast("已更新分类：" + c.name);
+  }
   function libFiltered() {
     const f = libFilter;
     return S.courses.map((c) => ({ c: c, m: courseMeta(c) })).filter(function (x) {
@@ -1807,6 +1903,9 @@
         (c.createdAt ? " · " + c.createdAt : "") + "</small></div>" +
         '<div style="display:flex;gap:6px;flex:none">' +
         '<button class="btn" data-action="lib-view" data-id="' + c.id + '">查看</button>' +
+        (isRealAdmin() || (c.createdBy && c.createdBy === meName())
+          ? '<button class="btn" data-action="lib-meta" data-id="' + c.id + '">编辑分类</button>'
+          : "") +
         (canDel ? '<button class="btn btn-ghost" data-action="lib-remove" data-id="' + c.id + '">删除</button>' : "") +
         "</div></div></div>"
       );
@@ -1925,6 +2024,7 @@
       "<td>" + esc(s.grade || "—") + "</td>" +
       '<td>' + (s.status === "禁用" ? '<span class="badge live">已禁用</span>' : '<span class="badge done">正常</span>') + "</td>" +
       '<td>' + esc(s.joinedAt || "—") + "</td>" +
+      "<td>" + esc(s.remark || "—") + "</td>" +
       '<td class="c-ops">' +
       '<button class="btn" data-action="stu-view" data-id="' + s.id + '">查看</button>' +
       (isAdmin()
@@ -1940,7 +2040,7 @@
     );
   }
   const filterStudents = (kw) => visibleStudents().filter((s) => !kw || s.name.indexOf(kw) >= 0 || (s.phone || "").indexOf(kw) >= 0);
-  const stuListHtml = (list) => (list.length ? list.map(studentRow).join("") : '<tr><td colspan="9"><div class="empty">没有匹配的学员</div></td></tr>');
+  const stuListHtml = (list) => (list.length ? list.map(studentRow).join("") : '<tr><td colspan="10"><div class="empty">没有匹配的学员</div></td></tr>');
   function viewStudents() {
     const list = visibleStudents();
     return (
@@ -1950,7 +2050,7 @@
       '<div class="card" style="margin-bottom:12px"><input id="stuSearch" class="input" placeholder="搜索学员姓名或手机号" value="' + esc(stuSearch) + '" /></div>' +
       '<div class="data-scroll"><table class="data-table">' +
       "<thead><tr><th>序号</th><th>姓名</th><th>所属教练</th><th>课时</th><th>性别</th>" +
-      "<th>年级</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>" +
+      "<th>年级</th><th>状态</th><th>创建时间</th><th>备注</th><th>操作</th></tr></thead>" +
       '<tbody id="stuList">' + stuListHtml(filterStudents(stuSearch)) + "</tbody></table></div>"
     );
   }
@@ -2124,7 +2224,6 @@
       '<div class="modal-head">' + (c ? "编辑教练" : "新增教练") + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body">' +
       '<div class="field"><label>教练姓名（= 登录账号）*</label><input id="coName" value="' + esc(c ? c.name : "") + '" /></div>' +
-      '<div class="field"><label>手机号</label><input id="coPhone" value="' + esc(c && c.phone ? c.phone : "") + '" placeholder="选填" /></div>' +
       '<div class="field"><label>登录密码 *</label><input id="coPass" value="' + esc(c ? c.pass : "") + '" /></div>' +
       '<div class="field"><label>账号类型 *</label><select id="coRole">' +
       roleOpts +
@@ -2147,7 +2246,11 @@
     const name = coName ? coName.value.trim() : "";
     const pass = coPass ? coPass.value.trim() : "";
     const picked = coRole ? coRole.value : "coach";
-    const coPhoneVal = String((document.getElementById("coPhone") || {}).value || "").trim();
+    const coPhoneEl = document.getElementById("coPhone");
+    const oldCoach = oldName ? (S.coaches || []).find((x) => x.name === oldName) : null;
+    const coPhoneVal = coPhoneEl
+      ? String(coPhoneEl.value || "").trim()
+      : (oldCoach && oldCoach.phone ? oldCoach.phone : "");
     let role = ["coach", "memory", "teacher"].indexOf(picked) >= 0 ? picked : "admin";
     if (!isRealAdmin()) role = "coach";          /* 教练账号只能开通助教账号 */
     const parentEl = document.getElementById("coParent");
@@ -2439,6 +2542,7 @@
     const keepTop = (v.dataset.vkey === vk) ? v.scrollTop : 0;
     if (route.name === "dashboard") v.innerHTML = viewDashboard();
     else if (route.name === "schedule") v.innerHTML = viewSchedule();
+    else if (route.name === "practice") v.innerHTML = viewPracticeList();
     else if (route.name === "teach") v.innerHTML = viewTeach();
     else if (route.name === "course") v.innerHTML = viewCourse();
     else if (route.name === "lesson") v.innerHTML = viewLesson();
@@ -2451,7 +2555,7 @@
     else if (route.name === "coaches") v.innerHTML = viewCoaches();
     else if (route.name === "coach") v.innerHTML = viewCoachDetail();
     else v.innerHTML = viewMe();
-    const map = { dashboard: "dashboard", schedule: "schedule", teach: "schedule", course: "schedule", lesson: "schedule", students: "students", student: "students", coaches: "coaches", coach: "coaches", record: "record", library: "library", review: "review", anti: "review", me: "me" };
+    const map = { dashboard: "dashboard", schedule: "schedule", practice: "schedule", teach: "schedule", course: "schedule", lesson: "schedule", students: "students", student: "students", coaches: "coaches", coach: "coaches", record: "record", library: "library", review: "review", anti: "review", me: "me" };
     const active = map[route.name] || route.name;
     $$("#tabbar .tab").forEach((b) => b.classList.toggle("is-active", b.dataset.nav === active));
     renderHeader();
@@ -2578,14 +2682,12 @@
       '<div class="modal-head">' + (s ? "编辑学员" : "新增学员") + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body">' +
       '<div class="field"><label>姓名 *</label><input id="sName" value="' + esc(s ? s.name : "") + '" /></div>' +
-      '<div class="field"><label>手机号</label><input id="sPhone" value="' + esc(s ? s.phone : "") + '" /></div>' +
       '<div class="field"><label>年级</label><select id="sGrade">' + gradeOpts + "</select></div>" +
       '<div class="field"><label>性别</label><select id="sSex">' +
       '<option value="">未填写</option>' +
       '<option value="男">男</option>' +
       '<option value="女">女</option>' +
       "</select></div>" +
-      '<div class="field"><label>学校</label><input id="sSchool" value="' + esc(s ? s.school : "") + '" /></div>' +
       '<div class="field"><label>备注</label><input id="sRemark" value="' + esc(s ? s.remark : "") + '" /></div>' +
       '<div class="field"><label>家长登录密码</label><input id="sPass" value="' + esc(s && s.pass ? s.pass : "") +
       '" placeholder="留空则默认 123456" /></div>' +
@@ -2601,7 +2703,16 @@
     const name = $("#sName").value.trim();
     // 以下是新增/编辑学员的保存逻辑
     if (!name) { toast("请填写学员姓名"); return; }
-    const patch = { name: name, phone: $("#sPhone").value.trim(), grade: $("#sGrade").value, school: $("#sSchool").value.trim(), remark: $("#sRemark").value.trim() };
+    const old = id ? studentById(id) : null;
+    const phEl = document.getElementById("sPhone");
+    const scEl = document.getElementById("sSchool");
+    const patch = {
+      name: name,
+      phone: phEl ? phEl.value.trim() : (old ? (old.phone || "") : ""),
+      grade: $("#sGrade").value,
+      school: scEl ? scEl.value.trim() : (old ? (old.school || "") : ""),
+      remark: $("#sRemark").value.trim(),
+    };
     const passEl = $("#sPass");
     if (passEl) patch.pass = passEl.value.trim();
     const sxPatch = document.getElementById("sSex");
@@ -2933,6 +3044,9 @@
         render();
         break;
       /* 排课 */
+      case "practice-open": route.name = "practice"; render(); break;
+      case "practice-back": route.name = "schedule"; render(); break;
+      case "practice-start": startPractice(id); break;
       case "week-prev": weekOffset--; render(); break;
       case "week-next": weekOffset++; render(); break;
       case "pick-day": route.day = t.dataset.date; render(); break;
@@ -3057,6 +3171,7 @@
         break;
       /* 结束 */
       case "result-continue": {
+        if (lesson.practice) { const pc = lesson.courseId; startPractice(pc); toast("再练一轮"); break; }
         persistRound();
         const sid = lesson.studentId;
         const cid = lesson.courseId;
@@ -3075,6 +3190,7 @@
       }
       case "result-finish": finishWithAnti(); break;
       case "lesson-quit":
+        if (lesson.practice) { exitPractice(); break; }
         lesson = null;
         route.name = currentCourseId ? "course" : "schedule";
         if (route.name === "schedule") pending = null;
@@ -3162,6 +3278,8 @@
       case "coach-del": delCoach(id); break;
       case "lib-save": saveCourse(); break;
       case "lib-view": openCourseWords(id); break;
+      case "lib-meta": openLibMeta(id); break;
+      case "lib-meta-save": saveLibMeta(id); break;
       case "lib-remove": removeCourse(id); break;
       case "clear-all":
         if (confirm("将清空：全部排课、销课记录、错题本、学习进度。\n保留：学员名单、全部词库、教练账号和当前登录。\n\n确定执行吗？")) {
