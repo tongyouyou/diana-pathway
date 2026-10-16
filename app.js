@@ -476,6 +476,9 @@
   /* ---------------- 账号角色（管理员 / 教练） ---------------- */
   const ADMIN_ONLY_ROUTES = ["dashboard", "library", "coaches"];
   const ADMIN_ONLY_NAV = ["dashboard", "library", "coaches"];
+  /* 机构共用、只给管理员动的（教练也不行）：词库信息 */
+  const REAL_ADMIN_ONLY_ROUTES = ["library"];
+  const REAL_ADMIN_ONLY_NAV = ["library"];
   function ensureRoles() {
     let changed = false;
     (S.coaches || []).forEach((c) => { if (!c.role) { c.role = "admin"; changed = true; } });
@@ -502,34 +505,75 @@
   }
   /* 课表信息里每个人都只看自己名下的排课（管理员要看全部请用「控制台」的排课管理） */
   function visibleClasses() {
-    const me = (S.user && S.user.name) || "";
-    return (S.classes || []).filter((c) => (c.coach || "Diana") === me);
+    if (isRealAdmin()) return S.classes;
+    const me = meName();
+    return (S.classes || []).filter((c) => (c.coach || "Diana") === me || inMyScope(c.studentId));
   }
-  /* 管理员看全部销课记录；教练只看自己名下的记录 */
-  function visibleRecords() {
-    if (isAdmin()) return S.records;
-    const me = (S.user && S.user.name) || "";
-    return S.records.filter((r) => (r.coach || "Diana") === me);
+  /* ---------------- 数据范围 ----------------
+     管理员：全部
+     教练：只看自己开通的学员（教练之间互不相通）
+     助教：跟着自己的教练，看教练名下的学员
+     抗遗忘助手：只看抗遗忘
+  */
+  const meName = () => (S.user && S.user.name) || "";
+  function isRealAdmin() {
+    const c = currentCoach();
+    return !c || !c.role || c.role === "admin";
   }
-  /* 管理员看全部抗遗忘；教练只看自己名下的 */
-  /* 管理员看全部学员；教练只看名下有排课 / 销课记录的学员 */
+  function isTeacher() {
+    const c = currentCoach();
+    return !!(c && c.role === "teacher");
+  }
+  function isAssistantCoach() {
+    const c = currentCoach();
+    return !!(c && c.role === "coach");
+  }
+  const coachByName = (n) => (S.coaches || []).find((c) => c.name === n) || null;
+  /* 管理员=null（全部）；教练=自己；助教=所属教练 */
+  function scopeOwner() {
+    if (isRealAdmin()) return null;
+    if (isTeacher()) return meName();
+    if (isAssistantCoach()) return (coachByName(meName()) || {}).parent || "";
+    return "";
+  }
+  function inMyScope(studentId) {
+    const owner = scopeOwner();
+    if (owner === null) return true;
+    if (!owner) return false;
+    const s = studentById(studentId);
+    return !!(s && (s.owner || "") === owner);
+  }
+  /* 我 + 我名下的助教（管理员=全部账号） */
+  function myTeam() {
+    if (isRealAdmin()) return S.coaches || [];
+    const me = meName();
+    return (S.coaches || []).filter((c) => c.name === me || c.parent === me);
+  }
   function visibleStudents() {
     const all = S.students || [];
-    if (isAdmin()) return all;
-    const me = (S.user && S.user.name) || "";
+    const owner = scopeOwner();
+    if (owner === null) return all;
+    if (owner) return all.filter((s) => (s.owner || "") === owner);
+    /* 没设归属的助教：退回旧规则（有排课/销课记录的学员） */
+    const me = meName();
     const ids = {};
     (S.classes || []).forEach((c) => { if ((c.coach || "Diana") === me) ids[c.studentId] = 1; });
     (S.records || []).forEach((r) => { if ((r.coach || "Diana") === me) ids[r.studentId] = 1; });
     return all.filter((s) => ids[s.id]);
   }
+  function visibleRecords() {
+    if (isRealAdmin()) return S.records;
+    const me = meName();
+    return (S.records || []).filter((r) => (r.coach || "Diana") === me || inMyScope(r.studentId));
+  }
   function canViewStudent(id) {
-    return isAdmin() || visibleStudents().some((s) => s.id === id);
+    return isRealAdmin() || visibleStudents().some((s) => s.id === id);
   }
   function visibleReviews() {
     const all = (S.reviews || []).filter((r) => (S.records || []).some((x) => x.id === r.recordId));
-    if (isAdmin() || isMemoryAssistant()) return all;
-    const me = (S.user && S.user.name) || "";
-    return all.filter((r) => (r.coach || "Diana") === me);
+    if (isRealAdmin() || isMemoryAssistant()) return all;
+    const me = meName();
+    return all.filter((r) => (r.coach || "Diana") === me || inMyScope(r.studentId));
   }
   function reviewRecord(r) {
     return (S.records || []).find((x) => x.id === r.recordId) || null;
@@ -553,11 +597,15 @@
   function applyNavRole() {
     const admin = isAdmin();
     const memory = isMemoryAssistant();
+    const teacher = isTeacher();
     if (memory) navSuperviseOpen = true;
     $$("#tabbar .tab").forEach(function (b) {
+      const nav = b.dataset.nav;
       const allowed = memory
-        ? b.dataset.nav === "review" || b.dataset.navParent === "supervise"
-        : admin || ADMIN_ONLY_NAV.indexOf(b.dataset.nav) < 0;
+        ? nav === "review" || b.dataset.navParent === "supervise"
+        : teacher
+          ? REAL_ADMIN_ONLY_NAV.indexOf(nav) < 0
+          : admin || ADMIN_ONLY_NAV.indexOf(nav) < 0;
       b.style.display = allowed ? "" : "none";
     });
   }
@@ -1475,17 +1523,20 @@
       coach: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.6"/><path d="M4.8 20a7.2 7.2 0 0 1 14.4 0"/></svg>',
       book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H9v16H5.5A1.5 1.5 0 0 1 4 18.5v-13Z"/><path d="M9 4h4.5A1.5 1.5 0 0 1 15 5.5v13A1.5 1.5 0 0 1 13.5 20H9"/><path d="M17.5 6.2l2.6.7a1.5 1.5 0 0 1 1 1.8l-3.4 12"/></svg>',
     };
-    const coachCount = (S.coaches || []).length;
+    const myStudents = visibleStudents();
+    const full = isRealAdmin();
+    const myClasses = full ? S.classes : visibleClasses();
+    const coachCount = full ? (S.coaches || []).length : myTeam().length;
     const today = todayKey();
-    const pendingCount = S.classes.filter((c) => c.date === today && c.status !== "已完成").length;
-    const hours = S.students.reduce((a, s) => a + (s.hours || 0), 0);
+    const pendingCount = myClasses.filter((c) => c.date === today && c.status !== "已完成").length;
+    const hours = myStudents.reduce((a, s) => a + (s.hours || 0), 0);
     const totalWords = S.courses.reduce((a, c) => a + courseSize(c), 0);
     const kpis = [
-      { label: "总学员", value: S.students.length, unit: "人", sub: "在读学员", nav: "students", icon: ICON.users },
-      { label: "教练", value: coachCount, unit: "人", sub: "机构教练", nav: null, icon: ICON.coach },
-      { label: "授权课程", value: S.courses.length, unit: "门", sub: "可用词库", nav: "library", icon: ICON.book },
+      { label: "总学员", value: myStudents.length, unit: "人", sub: full ? "在读学员" : "我开通的学员", nav: "students", icon: ICON.users },
+      { label: "教练", value: coachCount, unit: "人", sub: full ? "机构教练" : "我 + 我的助教", nav: null, icon: ICON.coach },
+      { label: "授权课程", value: S.courses.length, unit: "门", sub: "可用词库", nav: full ? "library" : null, icon: ICON.book },
     ];
-    const classes = S.classes.slice().sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+    const classes = myClasses.slice().sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
     const rows = classes.length
       ? classes.map(function (c, i) {
           const stu = studentById(c.studentId);
@@ -1653,6 +1704,7 @@
       '<div class="mgmt-row">' +
       '<div class="mgmt-info"><span class="avatar">' + esc(s.name.slice(0, 1)) + "</span>" +
       '<div class="mi-main"><b>' + esc(s.name) + "</b><small>" + meta + "</small></div>" +
+      (isRealAdmin() && s.owner ? '<span class="badge wait">教练：' + esc(s.owner) + "</span>" : "") +
       (s.status === "禁用" ? '<span class="badge live">已禁用</span>' : '<span class="badge done">正常</span>') +
       "</div>" +
       '<div class="mgmt-ops">' +
@@ -1676,7 +1728,7 @@
     return (
       pageHead("学员管理",
         isAdmin() ? '<button class="btn btn-primary" data-action="stu-new">＋ 新增学员</button>' : "") +
-      '<div class="section-title" style="margin-top:0">' + (isAdmin() ? "教授学员" : "我的学员") + " · 共 " + list.length + " 人</div>" +
+      '<div class="section-title" style="margin-top:0">' + (isRealAdmin() ? "教授学员" : "我的学员") + " · 共 " + list.length + " 人</div>" +
       '<div class="card" style="margin-bottom:12px"><input id="stuSearch" class="input" placeholder="搜索学员姓名或手机号" value="' + esc(stuSearch) + '" /></div>' +
       '<div class="card mgmt-list" id="stuList">' + stuListHtml(filterStudents(stuSearch)) + "</div>"
     );
@@ -1724,13 +1776,14 @@
 
   /* ---------------- 教练管理 ---------------- */
   function viewCoaches() {
-    const list = S.coaches || [];
+    const list = isRealAdmin() ? (S.coaches || []) : myTeam();
     const cards = list.map(function (c) {
       const cnt = S.classes.filter((x) => (x.coach || "Diana") === c.name).length;
       return (
         '<div class="mgmt-row">' +
         '<div class="mgmt-info"><span class="avatar">' + esc(c.name.slice(0, 1)) + "</span>" +
         '<div class="mi-main"><b>' + esc(c.name) + "</b><small>登录账号 " + esc(c.name) + " · 名下排课 " + cnt + " 节" +
+        (c.role === "coach" ? " · 归属教练 " + esc(c.parent || "（未指定）") : "") +
         (c.joinedAt ? " · " + c.joinedAt : "") + "</small></div>" +
         ((!c.role || c.role === "admin")
           ? '<span class="badge done">管理员</span>'
@@ -1742,7 +1795,9 @@
         (S.user && S.user.name === c.name ? '<span class="badge done">当前登录</span>' : "") + "</div>" +
         '<div class="mgmt-ops">' +
         '<button class="btn" data-action="coach-edit" data-id="' + esc(c.name) + '">编辑</button>' +
-        '<button class="btn btn-ghost" data-action="coach-del" data-id="' + esc(c.name) + '">删除</button>' +
+        (S.user && S.user.name === c.name && !isRealAdmin()
+          ? ""
+          : '<button class="btn btn-ghost" data-action="coach-del" data-id="' + esc(c.name) + '">删除</button>') +
         "</div></div>"
       );
     }).join("");
@@ -1751,24 +1806,40 @@
         '<button class="btn btn-primary" data-action="coach-new">＋ 新增教练</button>') +
       '<div class="section-title" style="margin-top:0">教练 · 共 ' + list.length + " 人</div>" +
       '<div class="card" style="margin-bottom:12px"><div style="font-size:13px;color:var(--muted);line-height:1.8">' +
-      "教练名同时作为<b>登录账号</b>，密码用于右上角「登录」；新增后即可在排课时选择该教练。</div></div>" +
+      (isRealAdmin()
+        ? "教练名同时作为<b>登录账号</b>，密码用于右上角「登录」；新增后即可在排课时选择该教练。"
+        : "这里只显示你自己和你名下的助教。你可以给自己开通<b>助教账号</b>。") +
+      "</div></div>" +
       (list.length ? '<div class="card mgmt-list">' + cards + "</div>" : '<div class="card"><div class="empty">还没有教练</div></div>')
     );
   }
   function openCoachForm(name) {
     const c = name ? (S.coaches || []).find((x) => x.name === name) : null;
     const role = c ? (["coach", "memory", "teacher"].indexOf(c.role) >= 0 ? c.role : "admin") : "coach";
+    const admin = isRealAdmin();
+    const roleOpts = admin
+      ? '<option value="coach"' + (role === "coach" ? " selected" : "") + ">助教账号</option>" +
+        '<option value="memory"' + (role === "memory" ? " selected" : "") + ">抗遗忘助手账号</option>" +
+        '<option value="teacher"' + (role === "teacher" ? " selected" : "") + ">教练账号</option>" +
+        '<option value="admin"' + (role === "admin" ? " selected" : "") + ">管理员账号</option>"
+      : '<option value="coach" selected>助教账号</option>';
+    const parentField = admin
+      ? '<div class="field"><label>归属教练（仅助教账号需要）</label><select id="coParent">' +
+        '<option value="">（机构直属 / 暂不指定）</option>' +
+        (S.coaches || []).filter((x) => x.role === "teacher").map(function (x) {
+          return '<option value="' + esc(x.name) + '"' + (c && c.parent === x.name ? " selected" : "") + ">" + esc(x.name) + "</option>";
+        }).join("") +
+        "</select></div>"
+      : "";
     openModal(
       '<div class="modal-head">' + (c ? "编辑教练" : "新增教练") + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body">' +
       '<div class="field"><label>教练姓名（= 登录账号）*</label><input id="coName" value="' + esc(c ? c.name : "") + '" /></div>' +
       '<div class="field"><label>登录密码 *</label><input id="coPass" value="' + esc(c ? c.pass : "") + '" /></div>' +
       '<div class="field"><label>账号类型 *</label><select id="coRole">' +
-      '<option value="coach"' + (role === "coach" ? " selected" : "") + ">助教账号</option>" +
-      '<option value="memory"' + (role === "memory" ? " selected" : "") + ">抗遗忘助手账号</option>" +
-      '<option value="teacher"' + (role === "teacher" ? " selected" : "") + ">教练账号</option>" +
-      '<option value="admin"' + (role === "admin" ? " selected" : "") + ">管理员账号</option>" +
+      roleOpts +
       "</select></div>" +
+      parentField +
       "</div>" +
       '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
       '<button class="btn btn-primary" data-action="coach-save" data-id="' + esc(c ? c.name : "") + '">保存</button></div>'
@@ -1781,13 +1852,16 @@
     const name = coName ? coName.value.trim() : "";
     const pass = coPass ? coPass.value.trim() : "";
     const picked = coRole ? coRole.value : "coach";
-    const role = ["coach", "memory", "teacher"].indexOf(picked) >= 0 ? picked : "admin";
+    let role = ["coach", "memory", "teacher"].indexOf(picked) >= 0 ? picked : "admin";
+    if (!isRealAdmin()) role = "coach";          /* 教练账号只能开通助教账号 */
+    const parentEl = document.getElementById("coParent");
     if (!name) { toast("请填写教练姓名"); return; }
     if (!pass) { toast("请填写登录密码"); return; }
     S.coaches = S.coaches || [];
     if (oldName) {
       const c = S.coaches.find((x) => x.name === oldName);
       if (!c) return;
+      if (S.user && S.user.name === oldName && !isRealAdmin()) role = c.role;   /* 不能改自己的账号类型 */
       if (name !== oldName && S.coaches.some((x) => x.name === name)) { toast("该教练名已存在"); return; }
       const wasAdmin = !c.role || c.role === "admin";
       if (wasAdmin && role !== "admin" && adminCount() <= 1) { toast("至少要保留一个管理员账号"); return; }
@@ -1795,11 +1869,17 @@
       c.name = name;
       c.pass = pass;
       c.role = role;
+      c.parent = role === "coach"
+        ? (isRealAdmin() ? (parentEl ? parentEl.value : (c.parent || "")) : meName())
+        : "";
       if (S.user && S.user.name === oldName) S.user.name = name;
       toast("已保存教练");
     } else {
       if (S.coaches.some((x) => x.name === name)) { toast("该教练名已存在"); return; }
-      S.coaches.push({ name: name, pass: pass, role: role, joinedAt: todayKey() });
+      S.coaches.push({
+        name: name, pass: pass, role: role, joinedAt: todayKey(),
+        parent: role === "coach" ? (isRealAdmin() ? (parentEl ? parentEl.value : "") : meName()) : "",
+      });
       toast("已新增教练：" + name);
     }
     saveState();
@@ -1809,6 +1889,7 @@
   function delCoach(name) {
     const c = (S.coaches || []).find((x) => x.name === name);
     if (!c) return;
+    if (S.user && S.user.name === name) { toast("不能删除当前登录的账号"); return; }
     if (S.coaches.length <= 1) { toast("至少要保留一个教练账号"); return; }
     if ((!c.role || c.role === "admin") && adminCount() <= 1) { toast("至少要保留一个管理员账号"); return; }
     const used = S.classes.filter((x) => x.coach === name).length;
@@ -1974,7 +2055,7 @@
       '<div class="stat"><b>' + mine.length + "</b><span>上课总次数</span></div>" +
       '<div class="stat"><b>' + trial + "</b><span>体验课次数</span></div></div></div>" +
       '<div class="section-title">最近上课</div><div class="card">' + recs + "</div>" +
-      (isAdmin()
+      (isRealAdmin()
         ? '<div class="section-title">数据管理</div>' +
           '<div class="card">' +
           '<div class="li-main" style="margin-bottom:12px"><b>备份 / 恢复</b>' +
@@ -2008,6 +2089,8 @@
   function render() {
     if (isMemoryAssistant()) {
       if (MEMORY_ONLY_ROUTES.indexOf(route.name) < 0) route.name = "review";
+    } else if (isTeacher()) {
+      if (REAL_ADMIN_ONLY_ROUTES.indexOf(route.name) >= 0) { route.name = "schedule"; route.day = todayKey(); }
     } else if (!isAdmin() && ADMIN_ONLY_ROUTES.indexOf(route.name) >= 0) {
       route.name = "schedule";
       route.day = todayKey();
@@ -2048,11 +2131,11 @@
     document.getElementById("modalRoot").innerHTML = "";
   }
   const studentOptions = (selectedId) =>
-    S.students.map((s) => '<option value="' + s.id + '"' + (s.id === selectedId ? " selected" : "") + ">" + esc(s.name) + "</option>").join("");
+    visibleStudents().map((s) => '<option value="' + s.id + '"' + (s.id === selectedId ? " selected" : "") + ">" + esc(s.name) + "</option>").join("");
   function coachOptions(selected) {
-    const list = (S.coaches || []).map((c) => c.name);
+    const list = (isRealAdmin() ? (S.coaches || []) : myTeam()).map((c) => c.name);
     if (S.user && list.indexOf(S.user.name) < 0) list.push(S.user.name);
-    S.classes.forEach((c) => { if (c.coach && list.indexOf(c.coach) < 0) list.push(c.coach); });
+    visibleClasses().forEach((c) => { if (c.coach && list.indexOf(c.coach) < 0) list.push(c.coach); });
     if (selected && list.indexOf(selected) < 0) list.push(selected);
     return list
       .map((n) => '<option value="' + esc(n) + '"' + (n === selected ? " selected" : "") + ">" + esc(n) + "</option>")
@@ -2142,7 +2225,7 @@
     if (id) { Object.assign(studentById(id), patch); toast("已保存学员信息"); }
     else {
       S.students.push(Object.assign(
-        { id: uid(), hours: Math.max(0, parseInt($("#sHours").value, 10) || 0), status: "正常", courses: [], joinedAt: todayKey(), rechargeLog: [] },
+        { id: uid(), owner: meName(), hours: Math.max(0, parseInt($("#sHours").value, 10) || 0), status: "正常", courses: [], joinedAt: todayKey(), rechargeLog: [] },
         patch
       ));
       toast("已新增学员：" + name);
