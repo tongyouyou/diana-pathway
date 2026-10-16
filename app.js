@@ -1846,10 +1846,6 @@
         (isRealAdmin() && coachStatus(c) === "待审核"
           ? '<button class="btn btn-primary" data-action="coach-approve" data-id="' + esc(c.name) + '">审核通过</button>'
           : "") +
-        (canManageCoach(c) && coachStatus(c) !== "待审核"
-          ? '<button class="btn" data-action="coach-toggle-status" data-id="' + esc(c.name) + '">' +
-            (coachStatus(c) === "禁用" ? "启用" : "禁用") + "</button>"
-          : "") +
         '<button class="btn" data-action="coach-edit" data-id="' + esc(c.name) + '">编辑</button>' +
         (canManageCoach(c)
           ? '<button class="btn btn-ghost" data-action="coach-del" data-id="' + esc(c.name) + '">删除</button>'
@@ -1897,7 +1893,12 @@
       "</select></div>" +
       parentField +
       "</div>" +
-      '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
+      '<div class="modal-foot">' +
+      (c && canManageCoach(c) && coachStatus(c) !== "待审核"
+        ? '<button class="btn" data-action="coach-toggle-status" data-id="' + esc(c.name) + '">' +
+          (coachStatus(c) === "禁用" ? "启用账号" : "禁用账号") + "</button>"
+        : "") +
+      '<button class="btn btn-ghost" data-action="close-modal">取消</button>' +
       '<button class="btn btn-primary" data-action="coach-save" data-id="' + esc(c ? c.name : "") + '">保存</button></div>'
     );
   }
@@ -1957,7 +1958,7 @@
     if (!c) return;
     if (!canManageCoach(c)) { toast("没有权限操作该账号"); return; }
     c.status = coachStatus(c) === "禁用" ? "正常" : "禁用";
-    saveState(); render();
+    saveState(); closeModal(); render();
     toast(c.status === "禁用" ? "已禁用：" + name : "已启用：" + name);
   }
   function delCoach(name) {
