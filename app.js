@@ -1925,13 +1925,21 @@
   }
   function libFiltered() {
     const f = libFilter;
-    return S.courses.map((c) => ({ c: c, m: courseMeta(c) })).filter(function (x) {
+    const list = S.courses.map((c, i) => ({ c: c, i: i, m: courseMeta(c) })).filter(function (x) {
       if (f.kw && x.c.name.indexOf(f.kw) < 0) return false;
       if (f.book && x.m.book !== f.book) return false;
       if (f.stage && x.m.stage !== f.stage) return false;
       if (f.kind && x.m.kind !== f.kind) return false;
       return true;
     });
+    /* 最新导入的词库排在最前面：先按创建日期倒序，同一天的按导入先后倒序 */
+    list.sort(function (a, b) {
+      const da = a.c.createdAt || "";
+      const db = b.c.createdAt || "";
+      if (da !== db) return da < db ? 1 : -1;
+      return b.i - a.i;
+    });
+    return list;
   }
   function libCountText(list) {
     return "词库 · 共 " + list.length + " 个" +
