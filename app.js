@@ -1454,7 +1454,7 @@
     return (
       '<div class="section-title" style="margin-top:2px">' + blockTitle() +
       '<span class="link" data-action="lesson-quit">退出</span></div>' +
-      '<div class="card" style="display:flex;align-items:center;gap:12px;margin-bottom:12px">' +
+      '<div class="card sticky-bar" style="display:flex;align-items:center;gap:12px">' +
       '<div id="cutMeta" style="flex:1;font-size:13.5px">' + cutMetaHtml() + "</div>" +
       '<button id="cutNext" class="btn btn-primary" data-action="block-next"' +
       (lesson.list.every((w) => lesson.cutMark[w.w] !== undefined) ? "" : " disabled") + ">完成本组</button></div>" +
@@ -2344,7 +2344,11 @@
   }
 
   /* ---------------- 渲染 ---------------- */
-  function render() {
+ function render() {
+    /* 同一屏重新渲染（比如云端每 20 秒同步一次）时，保留滚动位置，别跳回顶部 */
+    const vk = (route.name !== "lesson" || !lesson)
+      ? route.name
+      : "lesson|" + (lesson.phase || "") + "|" + (lesson.stage || "") + "|" + (lesson.bi === undefined ? "" : lesson.bi);
     if (isMemoryAssistant()) {
       if (MEMORY_ONLY_ROUTES.indexOf(route.name) < 0) route.name = "review";
     } else if (isTeacher()) {
@@ -2354,6 +2358,7 @@
       route.day = todayKey();
     }
     const v = document.getElementById("view");
+    const keepTop = (v.dataset.vkey === vk) ? v.scrollTop : 0;
     if (route.name === "dashboard") v.innerHTML = viewDashboard();
     else if (route.name === "schedule") v.innerHTML = viewSchedule();
     else if (route.name === "teach") v.innerHTML = viewTeach();
@@ -2374,7 +2379,8 @@
     applySidebar();
     applyNavRole();
     applyNavGroups();
-    v.scrollTop = 0;
+    v.dataset.vkey = vk;
+    v.scrollTop = keepTop;
   }
 
   /* ---------------- 弹窗 ---------------- */
