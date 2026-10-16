@@ -2211,17 +2211,51 @@
     render();
     toast("已删除词条：" + w.w);
   }
+  /* 删除词库：先弹确认，再点一次才真删（防误删） */
   function removeCourse(id) {
     const c = courseById(id);
     if (!c) return;
     if (!isRealAdmin()) { toast("只有管理员可以删除词库"); return; }
+    askDeleteCourse(id, 1);
+  }
+  function askDeleteCourse(id, step) {
+    const c = courseById(id);
+    if (!c) return;
     const used = S.students.filter((s) => (s.courses || []).indexOf(id) >= 0).length;
-    if (!confirm("确定删除词库「" + c.name + "」吗？" + (used ? "有 " + used + " 名学员已开通，会一并取消。" : ""))) return;
+    const n = courseSize(c);
+    if (step === 1) {
+      openModal(
+        '<div class="modal-head">删除词库 <span class="x" data-action="close-modal">×</span></div>' +
+        '<div class="modal-body">' +
+        '<p style="font-size:15px;margin:0 0 10px">要删除的词库：<b>' + esc(c.name) + "</b></p>" +
+        '<p style="font-size:13px;color:var(--muted);margin:0">共 ' + n + " 个单词" +
+        (used ? "，有 " + used + " 名学员已开通，会一并取消。" : "。") +
+        "</p></div>" +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
+        '<button class="btn btn-danger" data-action="lib-del-ask" data-id="' + id + '">删除</button></div>'
+      );
+      return;
+    }
+    openModal(
+      '<div class="modal-head">再确认一次 <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-body">' +
+      '<p style="font-size:15px;margin:0 0 10px">真的要删除词库 <b>' + esc(c.name) + "</b> 吗？</p>" +
+      '<p style="font-size:13px;color:var(--muted);margin:0">删除后这个词库和里面的 ' + n + " 个单词都找不回来了。</p>" +
+      "</div>" +
+      '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消，不删了</button>' +
+      '<button class="btn btn-danger" data-action="lib-del-do" data-id="' + id + '">确认删除</button></div>'
+    );
+  }
+  function doRemoveCourse(id) {
+    const c = courseById(id);
+    if (!c) return;
+    if (!isRealAdmin()) { toast("只有管理员可以删除词库"); return; }
     S.courses = S.courses.filter((x) => x.id !== id);
     S.students.forEach((s) => { s.courses = (s.courses || []).filter((x) => x !== id); });
     saveState();
+    closeModal();
     render();
-    toast("已删除词库");
+    toast("已删除词库：" + c.name);
   }
 
   /* ---------------- 学员 ---------------- */
@@ -3562,6 +3596,8 @@
       case "lib-meta": openLibMeta(id); break;
       case "lib-meta-save": saveLibMeta(id); break;
       case "lib-remove": removeCourse(id); break;
+      case "lib-del-ask": askDeleteCourse(id, 2); break;
+      case "lib-del-do": doRemoveCourse(id); break;
       case "clear-all":
         if (confirm("将清空：全部排课、销课记录、错题本、学习进度。\n保留：学员名单、全部词库、教练账号和当前登录。\n\n确定执行吗？")) {
           clearAllButMine();
