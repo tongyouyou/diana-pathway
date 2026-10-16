@@ -249,7 +249,21 @@
     if (!Array.isArray(s.classes)) s.classes = [];
     if (!s.courses || !s.courses.length) s.courses = seedCourses();
     if (!s.coaches || !s.coaches.length) s.coaches = SEED_COACHES.map((c) => Object.assign({}, c, { joinedAt: todayKey() }));
+    migrateCoachTotals(s);
     return s;
+  }
+  /* 一次性给老教练账号补上「累计充值课时」字段：之后它只增不减，
+     不会被上课、给学员充值、学员退费影响（老账号按充值记录 / 当前课时推算） */
+  function migrateCoachTotals(s) {
+    let changed = false;
+    ((s && s.coaches) || []).forEach(function (c) {
+      if (typeof c.totalHours !== "number") {
+        const sum = (c.rechargeLog || []).reduce((a, x) => a + (Number(x && x.count) || 0), 0);
+        c.totalHours = Math.max(sum, c.hours || 0);
+        changed = true;
+      }
+    });
+    return changed;
   }
   function cloudPull() {
     if (!CLOUD_MODE) return Promise.resolve(false);
@@ -357,6 +371,7 @@
         if (!s.courses || !s.courses.length) s.courses = seedCourses();
         if (!s.coaches || !s.coaches.length) s.coaches = SEED_COACHES.map((c) => Object.assign({}, c, { joinedAt: todayKey() }));
         if (!Array.isArray(s.reviews)) s.reviews = [];
+        migrateCoachTotals(s);
         return s;
       }
     } catch (e) { /* ignore */ }
@@ -637,6 +652,7 @@
   /* 教练累计充值课时：只增不减，跟着充值记录走（上课扣的是「剩余课时」，不动这个数） */
   function coachTotalHours(c) {
     if (!c) return 0;
+    if (typeof c.totalHours === "number") return c.totalHours;
     const sum = (c.rechargeLog || []).reduce((a, x) => a + (Number(x && x.count) || 0), 0);
     return Math.max(sum, c.hours || 0);
   }
@@ -2304,7 +2320,7 @@
       if (S.coaches.some((x) => x.name === name)) { toast("该教练名已存在"); return; }
       S.coaches.push({
         name: name, pass: pass, role: role, joinedAt: todayKey(),
-        hours: 0,
+        hours: 0, totalHours: 0,
         phone: coPhoneVal,
         status: isRealAdmin() ? "正常" : "待审核",
         parent: role === "coach" ? (isRealAdmin() ? (parentEl ? parentEl.value : "") : meName()) : "",
@@ -2831,7 +2847,9 @@
     const c = coachByName(name);
     const n = parseInt($("#crCount").value, 10);
     if (!c || !n || n <= 0) { toast("请输入正确的课时数"); return; }
+    if (typeof c.totalHours !== "number") c.totalHours = coachTotalHours(c);
     c.hours = (c.hours || 0) + n;
+    c.totalHours += n;
     c.rechargeLog = c.rechargeLog || [];
     c.rechargeLog.unshift({ date: todayKey(), count: n, note: $("#crNote").value.trim() });
     saveState(); closeModal(); render();
