@@ -2064,6 +2064,7 @@
       if (S.coaches.some((x) => x.name === name)) { toast("该教练名已存在"); return; }
       S.coaches.push({
         name: name, pass: pass, role: role, joinedAt: todayKey(),
+        hours: 0,
         status: isRealAdmin() ? "正常" : "待审核",
         parent: role === "coach" ? (isRealAdmin() ? (parentEl ? parentEl.value : "") : meName()) : "",
       });
@@ -2463,7 +2464,7 @@
       '<div class="field"><label>备注</label><input id="sRemark" value="' + esc(s ? s.remark : "") + '" /></div>' +
       '<div class="field"><label>家长登录密码</label><input id="sPass" value="' + esc(s && s.pass ? s.pass : "") +
       '" placeholder="留空则默认 123456" /></div>' +
-      (s ? "" : '<div class="field"><label>初始课时（60分钟）</label><input id="sHours" type="number" min="0" value="0" /></div>') +
+      (s || !isRealAdmin() ? "" : '<div class="field"><label>初始课时（60分钟）</label><input id="sHours" type="number" min="0" value="0" /></div>') +
       "</div>" +
       '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
       '<button class="btn btn-primary" data-action="stu-save" data-id="' + (s ? s.id : "") + '">保存</button></div>'
@@ -2478,8 +2479,10 @@
     if (passEl) patch.pass = passEl.value.trim();
     if (id) { Object.assign(studentById(id), patch); toast("已保存学员信息"); }
     else {
+      const hEl = document.getElementById("sHours");
+      const initHours = (isRealAdmin() && hEl) ? Math.max(0, parseInt(hEl.value, 10) || 0) : 0;
       S.students.push(Object.assign(
-        { id: uid(), owner: meName(), hours: Math.max(0, parseInt($("#sHours").value, 10) || 0), status: "正常", courses: [], joinedAt: todayKey(), rechargeLog: [] },
+        { id: uid(), owner: meName(), hours: initHours, status: "正常", courses: [], joinedAt: todayKey(), rechargeLog: [] },
         patch
       ));
       toast("已新增学员：" + name);
