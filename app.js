@@ -488,7 +488,8 @@
   }
   function isAdmin() {
     const c = currentCoach();
-    return !c || !c.role || c.role === "admin";
+    /* 管理员 / 教练：目前都是全部权限（教练的权限以后按需要再单独收紧） */
+    return !c || !c.role || c.role === "admin" || c.role === "teacher";
   }
   /* 抗遗忘助手：只有「督学管理 → 抗遗忘」一个功能，且看全部学员的抗遗忘记录 */
   function isMemoryAssistant() {
@@ -1735,7 +1736,9 @@
           ? '<span class="badge done">管理员</span>'
           : c.role === "memory"
             ? '<span class="badge wait">抗遗忘助手</span>'
-            : '<span class="badge wait">教练</span>') +
+            : c.role === "teacher"
+              ? '<span class="badge done">教练</span>'
+              : '<span class="badge wait">助教</span>') +
         (S.user && S.user.name === c.name ? '<span class="badge done">当前登录</span>' : "") + "</div>" +
         '<div class="mgmt-ops">' +
         '<button class="btn" data-action="coach-edit" data-id="' + esc(c.name) + '">编辑</button>' +
@@ -1754,15 +1757,16 @@
   }
   function openCoachForm(name) {
     const c = name ? (S.coaches || []).find((x) => x.name === name) : null;
-    const role = c ? (c.role === "memory" ? "memory" : c.role === "coach" ? "coach" : "admin") : "coach";
+    const role = c ? (["coach", "memory", "teacher"].indexOf(c.role) >= 0 ? c.role : "admin") : "coach";
     openModal(
       '<div class="modal-head">' + (c ? "编辑教练" : "新增教练") + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body">' +
       '<div class="field"><label>教练姓名（= 登录账号）*</label><input id="coName" value="' + esc(c ? c.name : "") + '" /></div>' +
       '<div class="field"><label>登录密码 *</label><input id="coPass" value="' + esc(c ? c.pass : "") + '" /></div>' +
       '<div class="field"><label>账号类型 *</label><select id="coRole">' +
-      '<option value="coach"' + (role === "coach" ? " selected" : "") + ">教练账号（只能用：课表信息 / 销课记录 / 用户信息）</option>" +
+      '<option value="coach"' + (role === "coach" ? " selected" : "") + ">助教账号</option>" +
       '<option value="memory"' + (role === "memory" ? " selected" : "") + ">抗遗忘助手账号</option>" +
+      '<option value="teacher"' + (role === "teacher" ? " selected" : "") + ">教练账号</option>" +
       '<option value="admin"' + (role === "admin" ? " selected" : "") + ">管理员账号</option>" +
       "</select></div>" +
       "</div>" +
@@ -1777,7 +1781,7 @@
     const name = coName ? coName.value.trim() : "";
     const pass = coPass ? coPass.value.trim() : "";
     const picked = coRole ? coRole.value : "coach";
-    const role = picked === "coach" || picked === "memory" ? picked : "admin";
+    const role = ["coach", "memory", "teacher"].indexOf(picked) >= 0 ? picked : "admin";
     if (!name) { toast("请填写教练姓名"); return; }
     if (!pass) { toast("请填写登录密码"); return; }
     S.coaches = S.coaches || [];
