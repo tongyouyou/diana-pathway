@@ -503,25 +503,19 @@
   function adminCount() {
     return (S.coaches || []).filter((c) => !c.role || c.role === "admin").length;
   }
-  /* 排课时占课时：算这节排课该记在哪个教练头上（学员所属教练；学员不归任何教练就看上课教练） */
+  /* 这节排课的课时算在哪个教练头上（学员所属教练；学员不归任何教练就看上课教练） */
   function chargeTargetName(stu, classCoach) {
     let co = stu && stu.owner ? coachByName(stu.owner) : null;
     if (!co || co.role !== "teacher") co = classCoach ? coachByName(classCoach) : null;
     return (co && co.role === "teacher") ? co.name : "";
   }
-  function chargeCoachHour(name) {
-    const co = name ? coachByName(name) : null;
-    if (co && co.role === "teacher") { co.hours = Math.max(0, (co.hours || 0) - 1); return true; }
-    return false;
-  }
   function coachHoursLeft(name) {
     const co = name ? coachByName(name) : null;
     return (co && co.role === "teacher") ? (co.hours || 0) : null;
   }
-  function refundCoachHour(name) {
-    const co = name ? coachByName(name) : null;
-    if (co && co.role === "teacher") co.hours = (co.hours || 0) + 1;
-  }
+  /* 学员课时：排课时占用 1 节，删掉待上课的排课就退还 */
+  function occupyStudentHour(stu) { if (stu) stu.hours = Math.max(0, (stu.hours || 0) - 1); }
+  function refundStudentHour(stu) { if (stu) stu.hours = (stu.hours || 0) + 1; }
   /* 课表信息里每个人都只看自己名下的排课（管理员要看全部请用「控制台」的排课管理） */
   function visibleClasses() {
     if (isRealAdmin()) return S.classes;
@@ -1237,9 +1231,6 @@
       };
       S.records.unshift(rec);
       if (cls) cls.status = "已完成";
-      if (stu && type.key === "60") {
-        stu.hours = Math.max(0, (stu.hours || 0) - 1);
-      }
       createAntiReviews(rec);
       saveState();
     }
@@ -1523,9 +1514,6 @@
       };
       S.records.unshift(rec);
       if (cls) cls.status = "已完成";
-      if (stu && type.key === "60") {
-        stu.hours = Math.max(0, (stu.hours || 0) - 1);
-      }
       createAntiReviews(rec);
     }
     saveState();
@@ -2212,39 +2200,48 @@
     if (editId) {
       const c = S.classes.find((x) => x.id === editId);
       if (c) {
-        /* 改到另一个教练名下前，先看那边还有没有课时 */
+        const oldStudentId = c.studentId;
+        const stuNew = studentById(patch.studentId);
         if (c.status !== "已完成") {
-          const wantPre = chargeTargetName(studentById(patch.studentId), patch.coach);
-          if (wantPre && wantPre !== (c.billTo || "") && coachHoursLeft(wantPre) <= 0) {
-            toast(wantPre + " 的课时已用完，请先充值再排课");
+          const target = chargeTargetName(stuNew, patch.coach);
+          if (target && coachHoursLeft(target) <= 0) {
+            toast(target + " 的课时已用完，请先充值再排课");
             return;
+          }
+          if (oldStudentId !== patch.studentId) {
+            if (!stuNew || (stuNew.hours || 0) <= 0) { toast("该学员课时已用完，请先充值"); return; }
+            if (c.occupied) refundStudentHour(studentById(oldStudentId));
+            occupyStudentHour(stuNew);
+            c.occupied = true;
+          } else if (!c.occupied) {
+            if (!stuNew || (stuNew.hours || 0) <= 0) { toast("该学员课时已用完，请先充值"); return; }
+            occupyStudentHour(stuNew);
+            c.occupied = true;
           }
         }
         Object.assign(c, patch);
-        /* 还没上课的排课：改了学员/教练，课时重新记到新的教练头上 */
-        if (c.status !== "已完成") {
-          const stu2 = studentById(c.studentId);
-          const want = chargeTargetName(stu2, c.coach);
-          if ((c.billTo || "") !== want) {
-            refundCoachHour(c.billTo);
-            c.billTo = chargeCoachHour(want) ? want : "";
-          }
-        }
       }
       toast("已保存修改");
     } else {
       const cls = Object.assign(
-        { id: uid(), status: "待上课", coach: (S.user && S.user.name) || "Diana" },
+        { id: uid(), status: "待上课", coach: (S.user && S.user.name) || "Diana", occupied: false },
         patch
       );
-      /* 一排课就把课时占上（60分钟课、体验课都占 1 节） */
+      /* 学员课时为 0 不能排课；教练课时为 0 也不能排课 */
       const stu0 = studentById(cls.studentId);
+      if (!stu0) { toast("请选择学员"); return; }
       const target = chargeTargetName(stu0, cls.coach);
       if (target && coachHoursLeft(target) <= 0) {
         toast(target + " 的课时已用完，请先充值再排课");
         return;
       }
-      cls.billTo = chargeCoachHour(target) ? target : "";
+      if ((stu0.hours || 0) <= 0) {
+        toast(stu0.name + " 的课时已用完，请先充值再排课");
+        return;
+      }
+      /* 一排课就把学员的 1 节课时占上（60分钟课、体验课都占） */
+      occupyStudentHour(stu0);
+      cls.occupied = true;
       S.classes.push(cls);
       toast("排课成功");
     }
@@ -2314,10 +2311,16 @@
   function openRecharge(id) {
     const s = studentById(id);
     if (!s) return;
+    const owner = coachByName(s.owner || "");
+    const ownerLine = (owner && owner.role === "teacher")
+      ? '<p style="color:var(--muted);font-size:12.5px;margin:0 0 12px">该学员归属教练 <b>' + esc(owner.name) +
+        "</b>，教练剩余课时 <b>" + (owner.hours || 0) + "</b> 节（充值会从教练课时里扣）</p>"
+      : "";
     openModal(
       '<div class="modal-head">充值课时 · ' + esc(s.name) + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body"><p style="color:var(--muted);font-size:13px;margin:0 0 12px">当前剩余 <b style="color:var(--brand)">' +
       (s.hours || 0) + "</b> 节（60分钟课）</p>" +
+      ownerLine +
       '<div class="field"><label>充值课时数</label><input id="rCount" type="number" min="1" value="10" /></div>' +
       '<div class="field"><label>备注</label><input id="rNote" placeholder="如：家长续费 10 节" /></div></div>' +
       '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
@@ -2328,6 +2331,12 @@
     const s = studentById(id);
     const n = parseInt($("#rCount").value, 10);
     if (!s || !n || n <= 0) { toast("请输入正确的课时数"); return; }
+    /* 学员的课时从「该学员所属教练」的课时里出 */
+    const owner = coachByName(s.owner || "");
+    if (owner && owner.role === "teacher") {
+      if ((owner.hours || 0) <= 0) { toast(owner.name + " 的课时已用完，请先让管理员充值"); return; }
+      owner.hours = Math.max(0, (owner.hours || 0) - n);
+    }
     s.hours = (s.hours || 0) + n;
     s.rechargeLog = s.rechargeLog || [];
     s.rechargeLog.unshift({ date: todayKey(), count: n, note: $("#rNote").value.trim() });
@@ -2596,7 +2605,7 @@
           const stu = studentById(c.studentId);
           if (confirm("确定删除这节课吗？\n" + c.date + " " + c.time + " · " + (stu ? stu.name : "未知学员") + " · " + c.subject)) {
             S.classes = S.classes.filter((x) => x.id !== id);
-            if (c.status !== "已完成") refundCoachHour(c.billTo);   /* 还没上课的，课时退回 */
+            if (c.status !== "已完成" && c.occupied) refundStudentHour(stu);   /* 还没上课的，学员课时退回 */
             saveState();
             render();
             toast("已删除排课");
