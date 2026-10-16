@@ -721,10 +721,6 @@ textarea.input { resize: vertical; line-height: 1.7; font-family: inherit; }
   -webkit-backdrop-filter: saturate(180%) blur(8px);
   box-shadow: 0 1px 0 var(--line), 0 8px 18px rgba(16, 24, 40, .06);
 }
-.card.sticky-bar::before {
-  content: ""; position: absolute; left: -1px; right: -1px; top: -26px; height: 26px;
-  background: var(--bg);
-}
 .pre-list { display: flex; flex-direction: column; gap: 8px; }
 .pre-item {
   display: flex; align-items: center; gap: 12px;

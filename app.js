@@ -634,6 +634,12 @@
     return !!(c && c.role === "coach");
   }
   const coachByName = (n) => (S.coaches || []).find((c) => c.name === n) || null;
+  /* 教练累计充值课时：只增不减，跟着充值记录走（上课扣的是「剩余课时」，不动这个数） */
+  function coachTotalHours(c) {
+    if (!c) return 0;
+    const sum = (c.rechargeLog || []).reduce((a, x) => a + (Number(x && x.count) || 0), 0);
+    return Math.max(sum, c.hours || 0);
+  }
   /* 管理员=null（全部）；教练=自己；助教=所属教练 */
   function scopeOwner() {
     if (isRealAdmin()) return null;
@@ -1748,6 +1754,7 @@
     const today = todayKey();
     const pendingCount = myClasses.filter((c) => c.date === today && c.status !== "已完成").length;
     const hours = myStudents.reduce((a, s) => a + (s.hours || 0), 0);
+    const myTotalHours = coachTotalHours(meCoach);
     const totalWords = S.courses.reduce((a, c) => a + courseSize(c), 0);
     const kpis = [
       { label: "总学员", value: myStudents.length, unit: "人", sub: full ? "在读学员" : "我开通的学员", nav: "students", icon: ICON.users },
@@ -1795,7 +1802,7 @@
       "</div>" +
       '<div class="mini-stats">' +
       '<span>今日待上课 <b>' + pendingCount + "</b> 节</span>" +
-      '<span>' + (full ? "全机构剩余课时" : "全机构总课时") + ' <b>' + hours + "</b> 节</span>" +
+      '<span>' + (full ? "全机构剩余课时" : "全机构总课时") + ' <b>' + (full ? hours : myTotalHours) + "</b> 节</span>" +
       '<span>词库总词数 <b>' + totalWords.toLocaleString() + "</b> 词</span>" +
       "</div>" +
       '<div class="section-title">排课管理 · 共 ' + classes.length + ' 节</div>' +
