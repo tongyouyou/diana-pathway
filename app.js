@@ -2038,20 +2038,133 @@
     render();
     toast("已创建词库：" + name + "（" + words.length + " 个单词）");
   }
+  /* ---------------- 查看 / 编辑词条（编辑只有管理员能改） ---------------- */
+  let cwState = { id: null, kw: "", editIdx: -1, isNew: false };
   function openCourseWords(id) {
-    const c = courseById(id);
-    if (!c) return;
-    const words = courseWords(c);
-    openModal(
-      '<div class="modal-head">' + esc(c.name) + "（" + words.length + '） <span class="x" data-action="close-modal">×</span></div>' +
-      '<div class="modal-body">' +
-      (words.length
-        ? words.map((w) => '<div class="word-row"><span class="en">' + esc(w.w) + '</span><span class="cn">' +
-            esc((w.ph ? w.ph + "  " : "") + (w.m || "")) + "</span></div>").join("")
-        : '<div class="empty">这个词库还没有单词</div>') +
+    if (!courseById(id)) return;
+    cwState = { id: id, kw: "", editIdx: -1, isNew: false };
+    renderCourseWordsModal();
+  }
+  function renderCourseWordsModal() {
+    const root = document.getElementById("modalRoot");
+    root.innerHTML = '<div class="modal-backdrop" data-action="backdrop"><div class="modal">' + courseWordsBody() + "</div></div>";
+  }
+  function cwFiltered(c) {
+    const kw = cwState.kw.toLowerCase();
+    const list = courseWords(c).map(function (w, i) { return { w: w, i: i }; });
+    if (!kw) return list;
+    return list.filter(function (x) {
+      return (x.w.w || "").toLowerCase().indexOf(kw) >= 0 ||
+        (x.w.ph || "").toLowerCase().indexOf(kw) >= 0 ||
+        (x.w.m || "").toLowerCase().indexOf(kw) >= 0;
+    });
+  }
+  function cwListHtml(c) {
+    const list = cwFiltered(c);
+    if (!list.length) return '<div class="empty">' + (courseSize(c) ? "没有匹配的词条" : "这个词库还没有单词") + "</div>";
+    const admin = isRealAdmin();
+    return list.map(function (x) {
+      const w = x.w;
+      return '<div class="word-row cw-row"><span class="en">' + esc(w.w) + '</span><span class="cn">' +
+        esc((w.ph ? w.ph + "  " : "") + (w.m || "")) + "</span>" +
+        (admin
+          ? '<span class="cw-ops"><button class="btn" data-action="cw-edit" data-idx="' + x.i + '">改</button>' +
+            '<button class="btn btn-ghost" data-action="cw-del" data-idx="' + x.i + '">删</button></span>'
+          : "") +
+        "</div>";
+    }).join("");
+  }
+  function courseWordsBody() {
+    const c = courseById(cwState.id);
+    if (!c) return '<div class="empty">词库不存在</div>';
+    const admin = isRealAdmin();
+    if (cwState.editIdx >= 0) {
+      const w = courseWords(c)[cwState.editIdx] || { w: "", ph: "", m: "" };
+      return (
+        '<div class="modal-head">编辑词条 <span class="x" data-action="close-modal">×</span></div>' +
+        '<div class="modal-body">' +
+        '<div class="field"><label>英文 *</label><input id="cwW" value="' + esc(w.w) + '" /></div>' +
+        '<div class="field"><label>音标</label><input id="cwPh" value="' + esc(w.ph || "") + '" placeholder="如 /ruːm/" /></div>' +
+        '<div class="field"><label>中文</label><input id="cwM" value="' + esc(w.m || "") + '" /></div>' +
+        "</div>" +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-action="cw-back">返回列表</button>' +
+        '<button class="btn btn-primary" data-action="cw-save">保存</button></div>'
+      );
+    }
+    return (
+      '<div class="modal-head">' + esc(c.name) + "（共 " + courseSize(c) + ' 个） <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-body" style="max-height:64vh;overflow:auto">' +
+      '<div style="display:flex;gap:8px;margin-bottom:10px">' +
+      '<input id="cwKw" class="input" placeholder="搜索这个词库里的单词" value="' + esc(cwState.kw) + '" />' +
+      (admin ? '<button class="btn" style="flex:none" data-action="cw-add">＋ 添加词条</button>' : "") +
+      "</div>" +
+      '<div id="cwList">' + cwListHtml(c) + "</div>" +
       "</div>" +
       '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">关闭</button></div>'
     );
+  }
+  function refreshCwList() {
+    const c = courseById(cwState.id);
+    const host = document.getElementById("cwList");
+    if (c && host) host.innerHTML = cwListHtml(c);
+  }
+  /* 添加词条（表单复用编辑页，只是内容是空的） */
+  function openCourseWordNew() {
+    const c = courseById(cwState.id);
+    if (!c) return;
+    if (!isRealAdmin()) { toast("只有管理员可以改词库"); return; }
+    document.getElementById("modalRoot").innerHTML =
+      '<div class="modal-backdrop" data-action="backdrop"><div class="modal">' +
+      '<div class="modal-head">添加词条 · ' + esc(c.name) + ' <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-body">' +
+      '<div class="field"><label>英文 *</label><input id="cwW" /></div>' +
+      '<div class="field"><label>音标</label><input id="cwPh" placeholder="如 /ruːm/" /></div>' +
+      '<div class="field"><label>中文</label><input id="cwM" /></div>' +
+      "</div>" +
+      '<div class="modal-foot"><button class="btn btn-ghost" data-action="cw-back">返回列表</button>' +
+      '<button class="btn btn-primary" data-action="cw-save">添加</button></div></div></div>';
+  }
+  /* 保存词条（新增或修改）：只有管理员能改 */
+  function saveCourseWord() {
+    const c = courseById(cwState.id);
+    if (!c) return;
+    if (!isRealAdmin()) { toast("只有管理员可以改词库"); return; }
+    const el = (i) => document.getElementById(i);
+    const w = el("cwW").value.trim();
+    const ph = el("cwPh").value.trim();
+    const m = el("cwM").value.trim();
+    if (!w) { toast("请填写英文"); return; }
+    const words = courseWords(c);
+    const dup = words.some(function (x, i) {
+      return i !== cwState.editIdx && (x.w || "").trim().toLowerCase() === w.toLowerCase();
+    });
+    if (dup) { toast("这个词库里已经有「" + w + "」了"); return; }
+    if (cwState.editIdx >= 0) {
+      words[cwState.editIdx] = { w: w, ph: ph, m: m };
+      cwState.editIdx = -1;
+    } else {
+      words.push({ w: w, ph: ph, m: m });
+    }
+    c.words = words;
+    saveState();
+    renderCourseWordsModal();
+    render();
+    toast("已保存词条：" + w);
+  }
+  function delCourseWord(idx) {
+    const c = courseById(cwState.id);
+    if (!c) return;
+    if (!isRealAdmin()) { toast("只有管理员可以改词库"); return; }
+    const w = courseWords(c)[idx];
+    if (!w) return;
+    if (!confirm("确定从「" + c.name + "」里删除词条「" + w.w + "」吗？")) return;
+    const words = courseWords(c).slice();
+    words.splice(idx, 1);
+    c.words = words;
+    saveState();
+    renderCourseWordsModal();
+    render();
+    toast("已删除词条：" + w.w);
   }
   function removeCourse(id) {
     const c = courseById(id);
@@ -3392,6 +3505,11 @@
       case "coach-del": delCoach(id); break;
       case "lib-save": saveCourse(); break;
       case "lib-view": openCourseWords(id); break;
+      case "cw-add": openCourseWordNew(); break;
+      case "cw-edit": cwState.editIdx = parseInt(t.dataset.idx, 10); renderCourseWordsModal(); break;
+      case "cw-del": delCourseWord(parseInt(t.dataset.idx, 10)); break;
+      case "cw-save": saveCourseWord(); break;
+      case "cw-back": cwState.editIdx = -1; renderCourseWordsModal(); break;
       case "lib-meta": openLibMeta(id); break;
       case "lib-meta-save": saveLibMeta(id); break;
       case "lib-remove": removeCourse(id); break;
@@ -3440,6 +3558,10 @@
       const gsStu = gsBtn ? studentById(gsBtn.dataset.id) : null;
       const gsHost = document.getElementById("grList");
       if (gsHost && gsStu) gsHost.innerHTML = grantListHtml(gsStu);
+    }
+    if (el && el.id === "cwKw") {
+      cwState.kw = el.value.trim();
+      refreshCwList();
     }
   });
   document.addEventListener("change", function (e) {

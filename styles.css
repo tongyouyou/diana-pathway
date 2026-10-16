@@ -428,6 +428,9 @@ body {
 .word-row .en { font-weight: 700; font-size: 15px; min-width: 96px; }
 .word-row .cn { color: var(--muted); font-size: 13.5px; flex: 1; }
 .word-row .rm { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; }
+/* 词条行右侧的「改 / 删」 */
+.cw-row .cw-ops { display: flex; gap: 6px; flex: none; }
+.cw-row .cw-ops .btn { padding: 4px 10px; font-size: 12.5px; }
 
 /* ============ 弹窗 ============ */
 .modal-backdrop {
