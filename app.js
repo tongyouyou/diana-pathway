@@ -854,16 +854,20 @@
     const stu = studentById(c.studentId);
     const type = typeByKey(c.type);
     const badge = statusBadge(c.status);
+    const coach = c.coach || (S.user && S.user.name) || "Diana";
+    const hh = (c.time || "16:00").split(":");
+    const end = new Date();
+    end.setHours(+hh[0], (+hh[1]) + type.min, 0, 0);
+    const endStr = pad2(end.getHours()) + ":" + pad2(end.getMinutes());
     return (
       '<div class="card"><div class="class-card">' +
-      '<div class="class-time">' + (showDate ? "<em>" + esc(c.date.slice(5)) + "</em>" : "") +
-      "<b>" + esc(c.time) + "</b><span>" + type.label + "</span></div>" +
-      '<div class="class-main"><div class="who"><span class="avatar">' +
-      (stu ? esc(stu.name.slice(0, 1)) : "?") + "</span>" + (stu ? esc(stu.name) : "未知学员") +
-      badge + "</div>" +
-      '<div class="class-coach" style="font-size:12.5px;color:var(--muted);margin-top:4px">教练：' +
-      esc(c.coach || (S.user && S.user.name) || "Diana") + "</div></div>" +
+      '<div class="cc-main">' +
+      '<div class="cc-time">' + (showDate ? "<em>" + esc(c.date.slice(5)) + "</em>" : "") +
+      "<b>" + esc(c.time) + "–" + endStr + "</b><span>" + type.label + "</span></div>" +
+      '<div class="cc-stu">' + (stu ? esc(stu.name) : "未知学员") + badge + "</div>" +
+      '<div class="cc-coach">教练：' + esc(coach) + "</div></div>" +
       '<div class="class-actions">' +
+      '<button class="btn" data-action="class-prep" data-id="' + c.id + '">备课</button>' +
       (c.status !== "已完成"
         ? '<button class="btn btn-primary" data-action="start-class" data-id="' + c.id + '">上课</button>'
         : '<button class="btn btn-ghost" disabled>已下课</button>') +
@@ -917,6 +921,34 @@
   function classIsTrial(classId) {
     const c = (S.classes || []).find((x) => x.id === classId);
     return !!(c && c.type === "试听");
+  }
+  /* 备课：预览这节课要上的词（只读，不进入上课流程） */
+  function openPrep(classId) {
+    const c = (S.classes || []).find((x) => x.id === classId);
+    if (!c) return;
+    const stu = studentById(c.studentId);
+    if (!stu) return;
+    const isTrial = classIsTrial(classId);
+    const list = isTrial ? trialCourses() : (stu.courses || []).map(courseById).filter(Boolean);
+    const blocks = list.map(function (co) {
+      const done = learnedSet(stu.id, co.id);
+      const rest = courseWords(co).filter((w) => !done[w.w]);
+      const preview = rest.slice(0, 40).map(function (w) {
+        return '<div class="word-row"><span class="en">' + esc(w.w) + '</span><span class="cn">' +
+          esc((w.ph ? w.ph + " " : "") + (w.m || "")) + "</span></div>";
+      }).join("");
+      return '<div class="section-title">' + esc(co.name) + " · 还剩 " + rest.length + " 词</div>" +
+        '<div class="card">' + (rest.length
+          ? preview + (rest.length > 40 ? '<div class="empty">（只预览前 40 个）</div>' : "")
+          : '<div class="empty">这个词库已经学完了</div>') + "</div>";
+    }).join("");
+    openModal(
+      '<div class="modal-head">备课 · ' + esc(stu.name) + (isTrial ? "（体验课）" : "") + ' <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-body" style="max-height:64vh;overflow:auto">' +
+      (blocks || '<div class="empty">' + (isTrial ? "还没有体验课词库" : "该学员还没有开通词库，请先到「学员 → 课程开通」里添加") + "</div>") +
+      "</div>" +
+      '<div class="modal-foot"><button class="btn btn-primary" data-action="close-modal">关闭</button></div>'
+    );
   }
 
   /* ---------------- 选择词库（体验课 → 体验课词库；60 分钟 → 该学员已开通） ---------------- */
@@ -2681,6 +2713,7 @@
         route.name = "teach"; render();
         break;
       }
+      case "class-prep": openPrep(id); break;
       case "teach-exit": pending = null; route.name = "schedule"; render(); break;
       case "course-open":
         if (pending) {
