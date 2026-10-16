@@ -43,7 +43,7 @@
     { key: "试听", label: "体验课", min: 60 },
   ];
   /* 词库分类（用于词库信息里的搜索） */
-  const COURSE_BOOKS = ["人教版", "译林版", "外研版", "剑桥版", "通用版", "其他"];
+  const COURSE_BOOKS = ["人教版", "译林版", "外研版", "沪教版", "剑桥版", "通用版", "其他"];
   const COURSE_STAGES = ["小学", "初中", "高中", "大学", "其他"];
   const COURSE_KINDS = ["词库", "短语", "体验课", "其他"];
   const typeByKey = (k) => TYPES.find((t) => t.key === k) || TYPES[0];
