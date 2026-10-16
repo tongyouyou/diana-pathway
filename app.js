@@ -277,6 +277,7 @@
   let currentStudentId = null;
   let stuSearch = "";
   let libFilter = { kw: "", book: "", stage: "", kind: "" };
+  let prepMode = false;   /* 备课模式：只预览词库，不上课 */
   let navSuperviseOpen = false;
   let grantDraft = [];
   let breakTimer = null;
@@ -884,9 +885,11 @@
       (showDate ? "<em>" + esc(c.date.slice(5)) + "</em>" : "") + "</div>" +
       '<div class="sc-actions">' +
       '<button class="btn" data-action="class-prep" data-id="' + c.id + '">备课</button>' +
-      (c.status !== "已完成"
-        ? '<button class="btn btn-primary" data-action="start-class" data-id="' + c.id + '">上课</button>'
-        : '<button class="btn btn-ghost" disabled>已下课</button>') +
+      (c.status === "已完成"
+        ? '<button class="btn btn-ghost" disabled>已下课</button>'
+        : (c.date === todayKey()
+          ? '<button class="btn btn-primary" data-action="start-class" data-id="' + c.id + '">上课</button>'
+          : "")) +
       "</div></div>" +
       '<div class="sc-bottom">' +
       '<b class="sc-stu">' + (stu ? esc(stu.name) : "未知学员") + "</b>" +
@@ -943,14 +946,13 @@
     const c = (S.classes || []).find((x) => x.id === classId);
     return !!(c && c.type === "试听");
   }
-  /* 备课：预览这节课要上的词（只读，不进入上课流程） */
-  function openPrep(classId) {
-    const c = (S.classes || []).find((x) => x.id === classId);
-    if (!c) return;
-    const stu = studentById(c.studentId);
-    if (!stu) return;
-    const isTrial = classIsTrial(classId);
-    const list = isTrial ? trialCourses() : (stu.courses || []).map(courseById).filter(Boolean);
+  /* 备课：点某个词库后，只读预览这节课要上的词（不会开始上课） */
+  function prepCourse(courseId) {
+    const one = courseById(courseId);
+    const stu = courseStudent();
+    if (!one || !stu) return;
+    const isTrial = !!(pending && classIsTrial(pending.classId));
+    const list = [one];
     const blocks = list.map(function (co) {
       const done = learnedSet(stu.id, co.id);
       const rest = courseWords(co).filter((w) => !done[w.w]);
@@ -966,9 +968,11 @@
     openModal(
       '<div class="modal-head">备课 · ' + esc(stu.name) + (isTrial ? "（体验课）" : "") + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body" style="max-height:64vh;overflow:auto">' +
+      '<p style="color:var(--muted);font-size:12.5px;margin:0 0 10px">只读预览，不会开始上课。</p>' +
       (blocks || '<div class="empty">' + (isTrial ? "还没有体验课词库" : "该学员还没有开通词库，请先到「学员 → 课程开通」里添加") + "</div>") +
       "</div>" +
-      '<div class="modal-foot"><button class="btn btn-primary" data-action="close-modal">关闭</button></div>'
+      '<div class="modal-foot"><button class="btn btn-ghost" data-action="prep-back">返回词库列表</button>' +
+      '<button class="btn btn-primary" data-action="close-modal">关闭</button></div>'
     );
   }
 
@@ -979,6 +983,7 @@
       return '<div class="card"><div class="empty">请从「排课」里点某个学员的「上课」进入</div></div>';
     }
     const isTrial = !!(pending && classIsTrial(pending.classId));
+    const prep = prepMode;
     const list = isTrial ? trialCourses() : (stu.courses || []).map(courseById).filter(Boolean);
     const cards = list.length
       ? list.map(function (c) {
@@ -988,7 +993,8 @@
             '<div class="ci">' + esc(c.name.slice(0, 2)) + "</div>" +
             '<div class="cm"><b>' + esc(c.name) + "</b>" +
             "<small>已学 " + learned + " · 剩余 " + (courseSize(c) - learned) + " · 共 " + courseSize(c) + " 词</small></div>" +
-            '<button class="btn btn-primary" data-action="course-open" data-id="' + c.id + '">打开</button>' +
+            '<button class="btn btn-primary" data-action="' + (prep ? "prep-open" : "course-open") + '" data-id="' + c.id + '">' +
+            (prep ? "预览" : "打开") + "</button>" +
             "</div></div>"
           );
         }).join("")
@@ -996,12 +1002,15 @@
           ? '<div class="card"><div class="empty">还没有体验课词库，请让管理员到「词库信息」里导入</div></div>'
           : '<div class="card"><div class="empty">该学员还没有开通词库，请到「学员 → 课程开通」里添加</div></div>');
     return (
-      pageHead(isTrial ? stu.name + " · 体验课词库" : "为 " + stu.name + " 选择词库",
+      pageHead(prep ? "备课 · " + stu.name : (isTrial ? stu.name + " · 体验课词库" : "为 " + stu.name + " 选择词库"),
         '<button class="btn btn-ghost" data-action="teach-exit">返回课表</button>') +
-      (isTrial
+      (prep
+        ? '<div class="card" style="margin-bottom:12px"><div style="font-size:13px;color:var(--muted);line-height:1.8">' +
+          "选一个词库点「预览」，只读查看这节课要上的词，<b>不会开始上课</b>。</div></div>"
+        : (isTrial
         ? '<div class="card" style="margin-bottom:12px"><div style="font-size:13px;color:var(--muted);line-height:1.8">' +
           "体验课词库对<b>所有学员</b>开放，不指定学员；上 60 分钟课时不会出现。</div></div>"
-        : "") +
+        : "")) +
       '<div class="cards">' + cards + "</div>"
     );
   }
@@ -2800,6 +2809,7 @@
       case "save-schedule": saveSchedule(id); break;
       case "start-class": {
         const c = S.classes.find((x) => x.id === id);
+        prepMode = false;
         const stuS = c ? studentById(c.studentId) : null;
         /* 上课前再查一次课时：这节课还没占课时的（老数据），先补占一节；没课时就不让上课 */
         if (c && c.status !== "已完成" && !c.occupied) {
@@ -2819,8 +2829,18 @@
         route.name = "teach"; render();
         break;
       }
-      case "class-prep": openPrep(id); break;
-      case "teach-exit": pending = null; route.name = "schedule"; render(); break;
+      case "class-prep": {
+        const cP = S.classes.find((x) => x.id === id);
+        if (!cP) break;
+        prepMode = true;
+        pending = { studentId: cP.studentId, classId: id };
+        lesson = null; currentCourseId = null;
+        route.name = "teach"; render();
+        break;
+      }
+      case "prep-open": prepCourse(id); break;
+      case "prep-back": closeModal(); route.name = "teach"; render(); break;
+      case "teach-exit": prepMode = false; pending = null; route.name = "schedule"; render(); break;
       case "course-open":
         if (pending) {
           currentCourseId = id;
