@@ -503,11 +503,20 @@
   function adminCount() {
     return (S.coaches || []).filter((c) => !c.role || c.role === "admin").length;
   }
-  /* 销课时，从该学员所属教练的课时里扣 1 节 */
-  function deductCoachHour(ownerName, classCoach) {
-    let co = ownerName ? coachByName(ownerName) : null;
+  /* 排课时占课时：算这节排课该记在哪个教练头上（学员所属教练；学员不归任何教练就看上课教练） */
+  function chargeTargetName(stu, classCoach) {
+    let co = stu && stu.owner ? coachByName(stu.owner) : null;
     if (!co || co.role !== "teacher") co = classCoach ? coachByName(classCoach) : null;
-    if (co && co.role === "teacher") co.hours = Math.max(0, (co.hours || 0) - 1);
+    return (co && co.role === "teacher") ? co.name : "";
+  }
+  function chargeCoachHour(name) {
+    const co = name ? coachByName(name) : null;
+    if (co && co.role === "teacher") { co.hours = Math.max(0, (co.hours || 0) - 1); return true; }
+    return false;
+  }
+  function refundCoachHour(name) {
+    const co = name ? coachByName(name) : null;
+    if (co && co.role === "teacher") co.hours = (co.hours || 0) + 1;
   }
   /* 课表信息里每个人都只看自己名下的排课（管理员要看全部请用「控制台」的排课管理） */
   function visibleClasses() {
@@ -1224,7 +1233,6 @@
       if (cls) cls.status = "已完成";
       if (stu && type.key === "60") {
         stu.hours = Math.max(0, (stu.hours || 0) - 1);
-        deductCoachHour(stu.owner, cls && cls.coach);
       }
       createAntiReviews(rec);
       saveState();
@@ -1511,7 +1519,6 @@
       if (cls) cls.status = "已完成";
       if (stu && type.key === "60") {
         stu.hours = Math.max(0, (stu.hours || 0) - 1);
-        deductCoachHour(stu.owner, cls && cls.coach);
       }
       createAntiReviews(rec);
     }
@@ -2198,13 +2205,29 @@
     };
     if (editId) {
       const c = S.classes.find((x) => x.id === editId);
-      if (c) Object.assign(c, patch);
+      if (c) {
+        Object.assign(c, patch);
+        /* 还没上课的排课：改了学员/教练，课时重新记到新的教练头上 */
+        if (c.status !== "已完成") {
+          const stu2 = studentById(c.studentId);
+          const want = chargeTargetName(stu2, c.coach);
+          if ((c.billTo || "") !== want) {
+            refundCoachHour(c.billTo);
+            c.billTo = chargeCoachHour(want) ? want : "";
+          }
+        }
+      }
       toast("已保存修改");
     } else {
-      S.classes.push(Object.assign(
+      const cls = Object.assign(
         { id: uid(), status: "待上课", coach: (S.user && S.user.name) || "Diana" },
         patch
-      ));
+      );
+      /* 一排课就把课时占上（60分钟课、体验课都占 1 节） */
+      const stu0 = studentById(cls.studentId);
+      const target = chargeTargetName(stu0, cls.coach);
+      cls.billTo = chargeCoachHour(target) ? target : "";
+      S.classes.push(cls);
       toast("排课成功");
     }
     saveState();
@@ -2555,6 +2578,7 @@
           const stu = studentById(c.studentId);
           if (confirm("确定删除这节课吗？\n" + c.date + " " + c.time + " · " + (stu ? stu.name : "未知学员") + " · " + c.subject)) {
             S.classes = S.classes.filter((x) => x.id !== id);
+            if (c.status !== "已完成") refundCoachHour(c.billTo);   /* 还没上课的，课时退回 */
             saveState();
             render();
             toast("已删除排课");
