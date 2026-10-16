@@ -2036,7 +2036,7 @@
       '<div class="section-title">共 ' + list.length + ' 条</div>' +
       '<div class="tbl-scroll"><div class="tbl rec-tbl">' +
       '<div class="tbl-head rec-row"><div>序号</div><div>学员</div><div>课时类型</div><div>词库</div>' +
-      "<div>上课时间</div><div>下课时间</div><div>教练</div><div>课后打印</div></div>" +
+      "<div>上课时间</div><div>下课时间</div><div>教练</div><div>操作</div></div>" +
       '<div class="tbl-body">' + rows + "</div></div></div>"
     );
   }

@@ -184,8 +184,22 @@ body {
 /* 销课记录：横向可滚动 */
 .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .tbl-scroll .tbl { min-width: 880px; }
+.tbl-scroll .tbl.rec-tbl { min-width: 0; width: max-content; }
 .tbl.rec-tbl .tbl-head, .tbl.rec-tbl .tbl-row {
-  grid-template-columns: 64px minmax(110px, 1fr) 96px minmax(150px, 1.3fr) 148px 148px 90px 116px;
+  grid-template-columns: 56px max-content max-content max-content max-content max-content max-content max-content;
+  width: max-content;
+}
+/* 所有内容一行显示，不换行；长了就往右延伸（横向滑动看） */
+.tbl.rec-tbl .tbl-head > div, .tbl.rec-tbl .tbl-row > div { white-space: nowrap; }
+/* 「操作」列吸在右侧，左右滑动时始终可见 */
+.tbl.rec-tbl .tbl-head > div:last-child,
+.tbl.rec-tbl .tbl-row > div:last-child {
+  position: sticky; right: 0; z-index: 2; background: #fff;
+  box-shadow: -8px 0 12px -8px rgba(16, 24, 40, .18);
+}
+.tbl.rec-tbl .tbl-head > div:last-child { background: #fafbff; z-index: 4; }
+.tbl.rec-tbl .tbl-row:hover > div:last-child { background: #fafbff; }
+.tbl.rec-tbl .tbl-body { width: max-content; }
 }
 
 .card {
