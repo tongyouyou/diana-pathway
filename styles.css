@@ -347,6 +347,8 @@ body {
 .badge.wait { background: #fff5e6; color: var(--warn); }
 .badge.done { background: var(--ok-soft); color: var(--ok); }
 .badge.live { background: var(--bad-soft); color: var(--bad); }
+/* 内测教练：淡紫底，和顶栏/分组标签同一套品牌色 */
+.badge.beta { background: var(--brand-soft); color: var(--brand); margin-right: 2px; }
 
 /* ============ 按钮 ============ */
 .btn {
@@ -453,6 +455,27 @@ body {
   content: ""; width: 4px; height: 15px; border-radius: 2px;
   background: rgba(255, 255, 255, .85); display: block;
 }
+/* 词库「开通」弹窗里的学员勾选列表 */
+.grant-list { max-height: 46vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; }
+.grant-row {
+  display: flex; align-items: center; gap: 9px; padding: 10px 12px;
+  font-size: 13.5px; border-bottom: 1px solid var(--line-soft); cursor: pointer;
+}
+.grant-row:last-child { border-bottom: none; }
+.grant-row input { width: 17px; height: 17px; accent-color: var(--brand); flex: none; }
+.grant-row span { flex: 1; min-width: 0; }
+.grant-row em { font-style: normal; font-size: 12px; color: var(--muted); }
+/* 上课中误点导航后，右下角常驻「继续上课」 */
+.resume-lesson {
+  position: fixed; right: 22px; bottom: 22px; z-index: 40;
+  padding: 12px 20px; border: none; border-radius: 999px; cursor: pointer;
+  font-size: 14px; font-weight: 700; color: #fff;
+  background: linear-gradient(135deg, #3b2ec0, var(--brand) 45%, var(--brand-2));
+  box-shadow: 0 10px 24px rgba(72, 57, 219, .35);
+  animation: pop .18s ease-out;
+}
+.resume-lesson:hover { filter: brightness(1.06); }
+@media (max-width: 720px) { .resume-lesson { right: 14px; bottom: 16px; padding: 11px 17px; } }
 
 /* ============ 弹窗 ============ */
 .modal-backdrop {

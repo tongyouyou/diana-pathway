@@ -960,7 +960,7 @@
   }
   /* 上课 / 教学练习期间：左侧导航自动收起，只留小图标；下课后自动恢复成上课前的样子。
      课上如果自己点了 ☰ 打开导航，就尊重她的操作，不再自动收起。 */
-  const TEACH_ROUTES = ["teach", "course", "lesson", "practice"];
+  const TEACH_ROUTES = ["teach", "course", "lesson", "practice", "anti"];
   let prevRouteForSidebar = null;
   let sidebarBeforeLesson = null;
   function syncLessonSidebar() {
@@ -1075,12 +1075,14 @@
       const cls = ["day"];
       if (key === todayKey()) cls.push("is-today");
       if (key === route.day) cls.push("is-active");
-      if (mine.some((c) => c.date === key)) cls.push("has-class");
+      if (mine.some((c) => c.date === key && c.status !== "已完成" && !isExpiredClass(c))) cls.push("has-class");
       return '<button class="' + cls.join(" ") + '" data-action="pick-day" data-date="' + key + '">' +
         '<span class="dw">' + WEEK_CN[d.getDay()] + '</span><span class="dd">' + d.getDate() + '</span><i class="dot"></i></button>';
     }).join("");
     const allMode = route.subject === "全部";
-    const list = mine
+    /* 课表只显示还没上的课：已下课、已过期没上的都不再占着课表 */
+    const upcoming = mine.filter((c) => c.status !== "已完成" && !isExpiredClass(c));
+    const list = upcoming
       .filter((c) => allMode || (c.date === route.day && c.subject === route.subject))
       .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
     const cards = list.length
@@ -2075,6 +2077,9 @@
         (c.createdAt ? " · " + c.createdAt : "") + "</small></div>" +
         '<div style="display:flex;gap:6px;flex:none">' +
         '<button class="btn" data-action="lib-view" data-id="' + c.id + '">查看</button>' +
+        (!c.trial && isAdmin()
+          ? '<button class="btn btn-primary" data-action="lib-grant" data-id="' + c.id + '">开通</button>'
+          : "") +
         (isRealAdmin() || (c.createdBy && c.createdBy === meName())
           ? '<button class="btn" data-action="lib-meta" data-id="' + c.id + '">编辑分类</button>'
           : "") +
@@ -2349,7 +2354,6 @@
       (isAdmin()
         ? '<button class="btn" data-action="stu-edit" data-id="' + s.id + '">编辑</button>' +
           '<button class="btn" data-action="stu-recharge" data-id="' + s.id + '">充值</button>' +
-          '<button class="btn" data-action="stu-course" data-id="' + s.id + '">课程开通</button>' +
           '<button class="btn btn-ghost" data-action="stu-more" data-id="' + s.id + '">更多</button>' +
           (isRealAdmin() && s.status === "禁用"
             ? '<button class="btn" style="color:var(--bad);background:var(--bad-soft)" data-action="stu-del" data-id="' + s.id + '">删除</button>'
@@ -2429,7 +2433,7 @@
           return (
             "<tr>" +
             '<td class="c-idx">' + (i + 1) + "</td>" +
-            "<td><b>" + esc(c.name) + "</b>" +
+            "<td>" + (c.beta && isRealAdmin() ? '<span class="badge beta">内测</span> ' : "") + "<b>" + esc(c.name) + "</b>" +
             (S.user && S.user.name === c.name ? ' <span class="badge done">当前登录</span>' : "") + "</td>" +
             "<td>" + roleLabel + "</td>" +
             "<td>" + coachTotalHours(c) + " 节</td>" +
@@ -2540,6 +2544,12 @@
         }).join("") +
         "</select></div>"
       : "";
+    const betaField = admin
+      ? '<div class="field"><label>内测教练</label>' +
+        '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--text)">' +
+        '<input type="checkbox" id="coBeta"' + (c && c.beta ? " checked" : "") + " />" +
+        "<span>标记为内测教练账号</span></label></div>"
+      : "";
     openModal(
       '<div class="modal-head">' + (c ? "编辑教练" : "新增教练") + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body">' +
@@ -2549,6 +2559,7 @@
       roleOpts +
       "</select></div>" +
       parentField +
+      betaField +
       "</div>" +
       '<div class="modal-foot">' +
       (c && canManageCoach(c) && coachStatus(c) !== "待审核"
@@ -2567,6 +2578,7 @@
     const pass = coPass ? coPass.value.trim() : "";
     const picked = coRole ? coRole.value : "coach";
     const coPhoneEl = document.getElementById("coPhone");
+    const coBetaEl = document.getElementById("coBeta");
     const oldCoach = oldName ? (S.coaches || []).find((x) => x.name === oldName) : null;
     const coPhoneVal = coPhoneEl
       ? String(coPhoneEl.value || "").trim()
@@ -2589,6 +2601,7 @@
       c.pass = pass;
       c.role = role;
       c.phone = coPhoneVal;
+      if (isRealAdmin()) c.beta = !!(coBetaEl && coBetaEl.checked);
       c.parent = role === "coach"
         ? (isRealAdmin() ? (parentEl ? parentEl.value : (c.parent || "")) : meName())
         : "";
@@ -2600,6 +2613,7 @@
         name: name, pass: pass, role: role, joinedAt: todayKey(),
         hours: 0, totalHours: 0,
         phone: coPhoneVal,
+        beta: !!(coBetaEl && coBetaEl.checked),
         status: isRealAdmin() ? "正常" : "待审核",
         parent: role === "coach" ? (isRealAdmin() ? (parentEl ? parentEl.value : "") : meName()) : "",
       });
@@ -2765,6 +2779,12 @@
   function startAntiReview(id) {
     const r = (S.reviews || []).find((x) => x.id === id);
     if (!r) return;
+    if (lesson && lesson.mode === "anti" && lesson.reviewId === id) {
+      route.name = "anti";
+      render();
+      toast("继续上次的复习");
+      return;
+    }
     const rec = reviewRecord(r);
     if (!rec) { toast("找不到对应的销课记录"); return; }
     const words = (rec.words || []).map((w) => ({ w: w.w, ph: w.ph, m: w.m }));
@@ -2896,6 +2916,17 @@
     applyNavGroups();
     v.dataset.vkey = vk;
     v.scrollTop = keepTop;
+    /* 上课中误点了左侧导航：课程进度不会丢，右下角出现「继续上课」 */
+    const oldResume = document.getElementById("resumeLesson");
+    if (oldResume) oldResume.remove();
+    if (lesson && TEACH_ROUTES.indexOf(route.name) < 0) {
+      const rb = document.createElement("button");
+      rb.id = "resumeLesson";
+      rb.className = "resume-lesson";
+      rb.dataset.action = "resume-lesson";
+      rb.textContent = "继续上课";
+      document.body.appendChild(rb);
+    }
   }
 
   /* ---------------- 弹窗 ---------------- */
@@ -3178,6 +3209,56 @@
         '<div class="cm"><b>' + esc(c.name) + "</b><small>共 " + courseSize(c) + " 词 · 已学 " + learnedCount(s.id, c.id) + "</small></div></div>";
     }).join("");
   }
+  /* 词库信息里：给指定学员开通 / 关闭这个��库（教练可以，助教不行） */
+  function openLibGrant(id) {
+    const c = courseById(id);
+    if (!c) return;
+    if (!isAdmin()) { toast("助教没有开通词库的权限"); return; }
+    const list = visibleStudents();
+    const rows = list.length
+      ? list.map(function (s) {
+          const on = (s.courses || []).indexOf(id) >= 0;
+          return '<label class="grant-row">' +
+            '<input type="checkbox" data-grant-sid="' + s.id + '"' + (on ? " checked" : "") + " />" +
+            "<span>" + esc(s.name) + "</span>" +
+            (s.owner ? "<em>" + esc(s.owner) + "</em>" : "") + "</label>";
+        }).join("")
+      : '<div class="empty">还没有学员</div>';
+    openModal(
+      '<div class="modal-head">开通词库 · ' + esc(c.name) + ' <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-body">' +
+      '<p style="font-size:12.5px;color:var(--muted);margin:0 0 10px">勾选要开通这个词库的学员；取消勾选就是关闭。</p>' +
+      '<input id="grantKw" class="input" placeholder="搜索学员" style="margin-bottom:8px" />' +
+      '<div id="grantList" class="grant-list">' + rows + "</div></div>" +
+      '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
+      '<button class="btn btn-primary" data-action="lib-grant-save" data-id="' + id + '">保存</button></div>'
+    );
+    const kw = document.getElementById("grantKw");
+    if (kw) kw.addEventListener("input", function () {
+      const q = kw.value.trim();
+      $$("#grantList .grant-row").forEach(function (row) {
+        row.style.display = (!q || row.textContent.indexOf(q) >= 0) ? "" : "none";
+      });
+    });
+  }
+  function saveLibGrant(id) {
+    const c = courseById(id);
+    if (!c) return;
+    if (!isAdmin()) { toast("助教没有开通词库的权限"); return; }
+    let on = 0;
+    $$("#grantList input[data-grant-sid]").forEach(function (el) {
+      const s = studentById(el.dataset.grantSid);
+      if (!s) return;
+      const has = (s.courses || []).indexOf(id) >= 0;
+      if (el.checked && !has) s.courses = (s.courses || []).concat([id]);
+      if (!el.checked && has) s.courses = (s.courses || []).filter((x) => x !== id);
+      if (el.checked) on++;
+    });
+    saveState();
+    closeModal();
+    render();
+    toast("已保存，" + on + " 名学员开通了这个词库");
+  }
   function openMore(id) {
     const s = studentById(id);
     if (!s) return;
@@ -3384,9 +3465,11 @@
     const navBtn = e.target.closest("[data-nav]");
     if (navBtn) {
       if (navBtn.dataset.nav === "students") stuSearch = "";
+      const wasInClass = !!(lesson && TEACH_ROUTES.indexOf(route.name) >= 0);
       route.name = navBtn.dataset.nav;
       if (route.name === "schedule") route.day = todayKey();
       render();
+      if (wasInClass) toast("上课进度已保留，点右下角「继续上课」接着上");
       return;
     }
     const seg = e.target.closest('[data-seg="1"]');
@@ -3428,6 +3511,12 @@
       /* 排课 */
       case "practice-open": route.name = "practice"; render(); break;
       case "practice-back": route.name = "schedule"; render(); break;
+      case "resume-lesson": {
+        if (!lesson) { toast("没有进行中的课程"); break; }
+        route.name = lesson.mode === "anti" ? "anti" : "lesson";
+        render();
+        break;
+      }
       case "practice-start": startPractice(id); break;
       case "week-prev": weekOffset--; render(); break;
       case "week-next": weekOffset++; render(); break;
@@ -3453,6 +3542,13 @@
       case "start-class": {
         const c = S.classes.find((x) => x.id === id);
         prepMode = false;
+        /* 这节课刚才上到一半（比如误点了导航），点「上课」就接着上次的进度 */
+        if (c && lesson && lesson.classId === id) {
+          route.name = "lesson";
+          render();
+          toast("继续上次的进度");
+          break;
+        }
         const stuS = c ? studentById(c.studentId) : null;
         /* 上课前再查一次课时：这节课还没占课时的（老数据），先补占一节；没课时就不让上课 */
         if (c && c.status !== "已完成" && !c.occupied) {
@@ -3673,6 +3769,8 @@
       case "cw-back": cwState.editIdx = -1; renderCourseWordsModal(); break;
       case "lib-meta": openLibMeta(id); break;
       case "lib-meta-save": saveLibMeta(id); break;
+      case "lib-grant": openLibGrant(id); break;
+      case "lib-grant-save": saveLibGrant(id); break;
       case "lib-remove": removeCourse(id); break;
       case "lib-del-ask": askDeleteCourse(id, 2); break;
       case "lib-del-do": doRemoveCourse(id); break;
