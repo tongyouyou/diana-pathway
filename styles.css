@@ -349,6 +349,9 @@ body {
 .badge.live { background: var(--bad-soft); color: var(--bad); }
 /* 内测教练：淡紫底，和顶栏/分组标签同一套品牌色 */
 .badge.beta { background: var(--brand-soft); color: var(--brand); margin-right: 2px; }
+/* 内测标签单独占一格，保证后面的名字始终对齐 */
+.co-name { display: flex; align-items: center; gap: 6px; }
+.beta-slot { width: 40px; flex: none; display: flex; align-items: center; }
 
 /* ============ 按钮 ============ */
 .btn {

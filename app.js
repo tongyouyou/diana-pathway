@@ -2363,10 +2363,21 @@
       "</td></tr>"
     );
   }
-  const filterStudents = (kw) => visibleStudents().filter((s) => !kw || s.name.indexOf(kw) >= 0 || (s.phone || "").indexOf(kw) >= 0);
+  /* 新添加的学员排最前面（同一天按加入先后倒序） */
+  const sortStudentsNewest = (list) => list
+    .map((s, i) => ({ s: s, i: i }))
+    .sort(function (a, b) {
+      const d = String(b.s.joinedAt || "").localeCompare(String(a.s.joinedAt || ""));
+      return d !== 0 ? d : b.i - a.i;
+    })
+    .map((x) => x.s);
+  const filterStudents = (kw) => sortStudentsNewest(
+    visibleStudents().filter((s) => !kw || s.name.indexOf(kw) >= 0 || (s.phone || "").indexOf(kw) >= 0)
+  );
   const stuListHtml = (list) => (list.length ? list.map(studentRow).join("") : '<tr><td colspan="11"><div class="empty">没有匹配的学员</div></td></tr>');
   function viewStudents() {
-    const list = visibleStudents();
+    /* 列表顺序：新添加的学员排在最前面 */
+    const list = sortStudentsNewest(visibleStudents());
     return (
       pageHead("学员管理",
         isAdmin() ? '<button class="btn btn-primary" data-action="stu-new">＋ 新增学员</button>' : "") +
@@ -2421,7 +2432,17 @@
 
   /* ---------------- 教练管理 ---------------- */
   function viewCoaches() {
-    const list = isRealAdmin() ? (S.coaches || []) : myTeam();
+    /* 列表顺序：自己的账号永远置顶，其余新添加的排在最前面 */
+    const meNow = (S.user && S.user.name) || "";
+    const list = (isRealAdmin() ? (S.coaches || []) : myTeam())
+      .map((c, i) => ({ c: c, i: i }))
+      .sort(function (a, b) {
+        if (a.c.name === meNow) return -1;
+        if (b.c.name === meNow) return 1;
+        const d = String(b.c.joinedAt || "").localeCompare(String(a.c.joinedAt || ""));
+        return d !== 0 ? d : b.i - a.i;
+      })
+      .map((x) => x.c);
     const rows = list.length
       ? list.map(function (c, i) {
           const roleLabel = (!c.role || c.role === "admin")
@@ -2434,8 +2455,11 @@
           return (
             "<tr>" +
             '<td class="c-idx">' + (i + 1) + "</td>" +
-            "<td>" + (c.beta && isRealAdmin() ? '<span class="badge beta">内测</span> ' : "") + "<b>" + esc(c.name) + "</b>" +
-            (S.user && S.user.name === c.name ? ' <span class="badge done">当前登录</span>' : "") + "</td>" +
+            '<td><span class="co-name">' +
+            '<span class="beta-slot">' + (c.beta && isRealAdmin() ? '<span class="badge beta">内测</span>' : "") + "</span>" +
+            "<b>" + esc(c.name) + "</b>" +
+            (S.user && S.user.name === c.name ? ' <span class="badge done">当前登录</span>' : "") +
+            "</span></td>" +
             "<td>" + roleLabel + "</td>" +
             "<td>" + coachTotalHours(c) + " 节</td>" +
             "<td>" + (c.hours || 0) + " 节</td>" +
