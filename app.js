@@ -43,7 +43,7 @@
     { key: "试听", label: "体验课", min: 60 },
   ];
   /* 词库分类（用于词库信息里的搜索） */
-  const COURSE_BOOKS = ["人教版", "译林版", "外研版", "沪教版", "仁爱版", "剑桥版", "通用版", "其他"];
+  const COURSE_BOOKS = ["人教版", "译林版", "外研版", "沪教版", "仁爱版", "广东版", "剑桥版", "通用版", "其他"];
   const COURSE_STAGES = ["小学", "初中", "高中", "大学", "其他"];
   const COURSE_KINDS = ["词库", "短语", "体验课", "其他"];
   const typeByKey = (k) => TYPES.find((t) => t.key === k) || TYPES[0];
@@ -227,15 +227,22 @@
     const headers = { "Content-Type": "application/json" };
     const tk = cloudToken();
     if (tk) headers.Authorization = "Bearer " + tk;
-    return fetch(CLOUD_API + path, { method: opts.method || "GET", headers: headers, body: opts.body })
+    /* 20 秒没响应就放弃，免得界面一直卡在“正在登录…/同步中” */
+    let timer = null;
+    let ctrl = null;
+    try { ctrl = new AbortController(); timer = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, 20000); } catch (e) { ctrl = null; }
+    const init = { method: opts.method || "GET", headers: headers, body: opts.body };
+    if (ctrl) init.signal = ctrl.signal;
+    return fetch(CLOUD_API + path, init)
       .then(function (res) {
+        if (timer) clearTimeout(timer);
         return res.text().then(function (txt) {
           let j = null;
           try { j = JSON.parse(txt); } catch (e) { j = null; }
           return { status: res.status, body: j };
         });
       })
-      .catch(function () { return { status: 0, body: null }; });
+      .catch(function () { if (timer) clearTimeout(timer); return { status: 0, body: null }; });
   }
   function shareable() {
     const out = {};
@@ -304,7 +311,11 @@
         cloudPushing = false;
         if (r.status === 200 && r.body) { cloudRev = r.body.rev || cloudRev; return true; }
         if (r.status === 409) {
-          return cloudPull().then(function () { render(); toast("云端数据已被更新，已同步最新版本"); return false; });
+          return cloudPull().then(function () {
+            render();
+            toast("别人刚保存过，已同步最新数据；如果刚才的操作没保存上，请再做一次");
+            return false;
+          });
         }
         if (r.status === 401) setCloudToken("");
         if (r.status === 404) {
@@ -312,6 +323,8 @@
           toast("这个网址没有云端后台，请换成管理员给你的网址");
         } else if (r.status === 403) {
           toast("没有权限保存这次改动（" + ((r.body && r.body.error) || "403") + "）");
+        } else if (!r.status) {
+          toast("网络断了或服务器没响应，这次改动还没同步上去，请稍后再操作一次");
         } else {
           toast("同步到云端失败（HTTP " + (r.status || "网络中断") + "），请稍后重试");
         }
@@ -486,6 +499,31 @@
     const pEl = document.getElementById("loginPass");
     const u = uEl ? uEl.value.trim() : "";
     const p = pEl ? pEl.value : "";
+    /* 云端模式必须走服务器登录，否则拿不到同步凭证（会出现“看着已登录，但一直同步失败”） */
+    if (CLOUD_MODE) {
+      if (!u || !p) { toast("请填写账号和密码"); return; }
+      api("/api/login", { method: "POST", body: JSON.stringify({ name: u, pass: p }) }).then(function (r) {
+        if (r.status !== 200 || !r.body || !r.body.token) {
+          const err = r.body && r.body.error;
+          toast(r.status === 401 ? "账号或密码不正确"
+            : err === "pending" ? "账号审核中，请联系管理员"
+            : err === "disabled" ? "该账号已停用"
+            : "登录失败，请检查网络后重试");
+          return;
+        }
+        setCloudToken(r.body.token);
+        return cloudPull().then(function () {
+          S.user = { name: u, at: todayKey() };
+          saveState();
+          closeModal();
+          renderHeader();
+          render();
+          renderLoginGate();
+          toast("登录成功，欢迎 " + u);
+        });
+      });
+      return;
+    }
     const coach = (S.coaches || []).find((c) => c.name === u);
     if (coach && coach.pass === p) {
       if (coachStatus(coach) !== "正常") {
@@ -2313,7 +2351,7 @@
           '<button class="btn" data-action="stu-recharge" data-id="' + s.id + '">充值</button>' +
           '<button class="btn" data-action="stu-course" data-id="' + s.id + '">课程开通</button>' +
           '<button class="btn btn-ghost" data-action="stu-more" data-id="' + s.id + '">更多</button>' +
-          (s.status === "禁用"
+          (isRealAdmin() && s.status === "禁用"
             ? '<button class="btn" style="color:var(--bad);background:var(--bad-soft)" data-action="stu-del" data-id="' + s.id + '">删除</button>'
             : "")
         : "") +
@@ -3016,7 +3054,8 @@
       const hEl = document.getElementById("sHours");
       const initHours = (isRealAdmin() && hEl) ? Math.max(0, parseInt(hEl.value, 10) || 0) : 0;
       S.students.push(Object.assign(
-        { id: uid(), owner: meName(), hours: initHours, totalHours: initHours, status: "正常", courses: [], joinedAt: todayKey(),
+        /* 助教开通的学员归到他的教练名下，否则教练和助教都看不到这个学员 */
+        { id: uid(), owner: scopeOwner() || meName(), hours: initHours, totalHours: initHours, status: "正常", courses: [], joinedAt: todayKey(),
           rechargeLog: initHours > 0 ? [{ date: todayKey(), count: initHours, note: "初始课时" }] : [] },
         patch
       ));
@@ -3028,6 +3067,7 @@
   function delStudent(id) {
     const s = studentById(id);
     if (!s) return;
+    if (!isRealAdmin()) { toast("只有管理员可以删除学员，可以先把账号禁用"); return; }
     if (s.status !== "禁用") { toast("请先在「更多」里禁用该账号，再删除"); return; }
     const recN = (S.records || []).filter((r) => r.studentId === id || r.student === s.name).length;
     const clsN = (S.classes || []).filter((c) => c.studentId === id).length;
@@ -3717,7 +3757,7 @@
   renderLoginGate();
   renderStorageWarning();
   if (CLOUD_MODE) {
-    if (!cloudToken()) { S.user = null; renderLoginGate(); autoLoginIfSaved(); }
+    if (!cloudToken()) { S.user = null; renderHeader(); renderLoginGate(); autoLoginIfSaved(); }
     cloudPull().then(function (ok) {
       if (!ok) return;
       renderHeader();
