@@ -691,8 +691,9 @@
   /* 课表信息里每个人都只看自己名下的排课（管理员要看全部请用「控制台」的排课管理） */
   function visibleClasses() {
     if (isRealAdmin()) return S.classes;
+    /* 排给谁就只出现在谁的课表里：教练/助教只看自己名下的课 */
     const me = meName();
-    return (S.classes || []).filter((c) => (c.coach || "Diana") === me || inMyScope(c.studentId));
+    return (S.classes || []).filter((c) => (c.coach || "Diana") === me);
   }
   /* ---------------- 数据范围 ----------------
      管理员：全部
