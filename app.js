@@ -2491,7 +2491,8 @@
         : "这里只显示你自己和你名下的助教。你可以给自己开通<b>助教账号</b>。") +
       "</div></div>" +
       '<div class="data-scroll"><table class="data-table">' +
-      "<thead><tr><th>序号</th><th>姓名</th><th>教练类型</th><th>累计课时</th><th>剩余课时</th><th>账号状态</th><th>创建日期</th><th>操作</th></tr></thead>" +
+      '<thead><tr><th>序号</th><th><span class="co-name"><span class="beta-slot"></span>姓名</span></th>' +
+      "<th>教练类型</th><th>累计课时</th><th>剩余课时</th><th>账号状态</th><th>创建日期</th><th>操作</th></tr></thead>" +
       "<tbody>" + rows + "</tbody></table></div>"
     );
   }
