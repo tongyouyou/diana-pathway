@@ -299,7 +299,7 @@
   function cloudPush(force) {
     if (!CLOUD_MODE) return Promise.resolve(false);
     cloudPushing = true;
-    return api("/api/state", { method: "PUT", body: JSON.stringify({ rev: force ? 0 : cloudRev, data: shareable() }) })
+    return api("/api/state", { method: "POST", body: JSON.stringify({ rev: force ? 0 : cloudRev, data: shareable() }) })
       .then(function (r) {
         cloudPushing = false;
         if (r.status === 200 && r.body) { cloudRev = r.body.rev || cloudRev; return true; }
@@ -307,9 +307,28 @@
           return cloudPull().then(function () { render(); toast("云端数据已被更新，已同步最新版本"); return false; });
         }
         if (r.status === 401) setCloudToken("");
-        toast("同步到云端失败，请检查网络");
+        if (r.status === 404) {
+          showNoBackendTip();
+          toast("这个网址没有云端后台，请换成管理员给你的网址");
+        } else if (r.status === 403) {
+          toast("没有权限保存这次改动（" + ((r.body && r.body.error) || "403") + "）");
+        } else {
+          toast("同步到云端失败（HTTP " + (r.status || "网络中断") + "），请稍后重试");
+        }
         return false;
       });
+  }
+  let noBackendShown = false;
+  function showNoBackendTip() {
+    if (noBackendShown || document.getElementById("noBackendWarn")) return;
+    noBackendShown = true;
+    const bar = document.createElement("div");
+    bar.id = "noBackendWarn";
+    bar.className = "storage-warn";
+    bar.innerHTML = "⚠️ 当前网址没有云端后台，这里做的改动不会同步给其他人。请改用管理员发给你的网址打开（例如 <b>http://47.95.141.197/</b>）。";
+    const shell = document.querySelector(".app-shell");
+    const body = document.querySelector(".app-body");
+    if (shell && body) shell.insertBefore(bar, body);
   }
   function cloudSchedule() {
     if (!CLOUD_MODE) return;
