@@ -196,6 +196,8 @@
   let cloudRev = 0;
   let cloudTimer = null;
   let cloudPushing = false;
+  let cloudPending = false;
+  let cloudRetry = 0;
 
   function cloudToken() { try { return localStorage.getItem(CLOUD_TOKEN_KEY) || ""; } catch (e) { return ""; } }
   function setCloudToken(t) {
@@ -283,6 +285,8 @@
     if (!CLOUD_MODE) return Promise.resolve(false);
     return api("/api/state").then(function (r) {
       if (r.status === 200 && r.body && r.body.data) {
+        /* 本机还有没提交上去的改动（刚点了保存/删除）时，先别用云端旧数据盖掉它 */
+        if (cloudTimer || cloudPushing || cloudPending) return false;
         const keepUser = S ? S.user : null;
         const keepSide = S ? !!S.sidebarCollapsed : false;
         S = normalize(r.body.data);
@@ -309,13 +313,22 @@
     return api("/api/state", { method: "POST", body: JSON.stringify({ rev: force ? 0 : cloudRev, data: shareable() }) })
       .then(function (r) {
         cloudPushing = false;
-        if (r.status === 200 && r.body) { cloudRev = r.body.rev || cloudRev; return true; }
+        if (r.status === 200 && r.body) {
+          cloudRev = r.body.rev || cloudRev;
+          cloudRetry = 0;
+          if (cloudPending) { cloudPending = false; cloudSchedule(); }
+          return true;
+        }
         if (r.status === 409) {
-          return cloudPull().then(function () {
-            render();
-            toast("别人刚保存过，已同步最新数据；如果刚才的操作没保存上，请再做一次");
-            return false;
-          });
+          /* 别人刚好也保存过：拿最新版本号把本机这次改动再提交一次，静默重试，不打断操作 */
+          cloudRev = (r.body && r.body.rev) || cloudRev;
+          if (cloudRetry < 2) {
+            cloudRetry++;
+            cloudPushing = false;
+            return cloudPush();
+          }
+          cloudRetry = 0;
+          return cloudPull().then(function () { render(); toast("刚才网络有点忙，改动可能没保存上，麻烦再操作一次"); return false; });
         }
         if (r.status === 401) setCloudToken("");
         if (r.status === 404) {
@@ -345,6 +358,8 @@
   }
   function cloudSchedule() {
     if (!CLOUD_MODE) return;
+    /* 上一次还在上传时不并发提交，等它完成后再补一次，避免自己跟自己抢导致“别人刚保存过” */
+    if (cloudPushing) { cloudPending = true; return; }
     if (cloudTimer) clearTimeout(cloudTimer);
     cloudTimer = setTimeout(function () { cloudTimer = null; cloudPush(); }, 700);
   }
