@@ -3712,7 +3712,9 @@
       case "open-break": openBreak(); break;
       case "break-toggle": breakToggle(); break;
       /* 学员 */
-      case "stu-new": openStudentForm(null); break;
+      case "stu-new":
+        try { openStudentForm(null); } catch (err) { toast("打开新增学员表单失败：" + (err && err.message ? err.message : err)); }
+        break;
       case "stu-edit": openStudentForm(id); break;
       case "stu-save": saveStudent(id); break;
       case "stu-recharge": openRecharge(id); break;
@@ -3771,7 +3773,9 @@
         break;
       }
       case "lib-new": openCreateCourse(); break;
-      case "coach-new": openCoachForm(null); break;
+      case "coach-new":
+        try { openCoachForm(null); } catch (err) { toast("打开新增教练表单失败：" + (err && err.message ? err.message : err)); }
+        break;
       case "coach-edit": openCoachForm(id); break;
       case "coach-view": openCoachView(id); break;
       case "coach-recharge": openCoachRecharge(id); break;
