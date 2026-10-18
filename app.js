@@ -3909,7 +3909,12 @@
     });
     setInterval(function () {
       if (cloudPushing || cloudTimer) return;
-      cloudPull().then(function (ok) { if (ok) render(); });
+      /* 先只问版本号（很小），别人改过了才去拉整份数据 */
+      api("/api/rev").then(function (r) {
+        if (r.status === 200 && r.body && typeof r.body.rev === "number" && r.body.rev !== cloudRev) {
+          cloudPull().then(function (ok) { if (ok) { renderHeader(); render(); } });
+        }
+      });
     }, 20000);
   }
 })();
