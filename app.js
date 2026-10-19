@@ -198,6 +198,10 @@
   let cloudPushing = false;
   let cloudPending = false;
   let cloudRetry = 0;
+  let cloudDirty = false;     // 本机有改动还没成功传上去
+  let cloudBase = null;       // 上一次和云端一致的快照，用来判断“我改了什么”
+  let cloudPulling = false;
+  let cloudStale = false;     // 云端有新版本，等下课后再拉
 
   function cloudToken() { try { return localStorage.getItem(CLOUD_TOKEN_KEY) || ""; } catch (e) { return ""; } }
   function setCloudToken(t) {
@@ -281,19 +285,126 @@
     });
     return changed;
   }
+  /* ---------------- 云端三方合并 ----------------
+     两个人同时操作时，不能拿整份旧数据盖掉别人刚保存的内容。
+     以「上次同步的快照」为基准，只把本机真正改过的字段挑出来，合并到云端最新数据上。 */
+  function cloneJson(x) {
+    try { return JSON.parse(JSON.stringify(x)); } catch (e) { return x; }
+  }
+  function mergeFields(base, local, remote) {
+    const out = cloneJson(remote) || {};
+    const keys = {};
+    Object.keys(base || {}).forEach(function (k) { keys[k] = 1; });
+    Object.keys(local || {}).forEach(function (k) { keys[k] = 1; });
+    Object.keys(keys).forEach(function (k) {
+      const bv = base ? base[k] : undefined;
+      const lv = local ? local[k] : undefined;
+      const rv = out[k];
+      /* 课时这类数字：两边都动过就按增减量叠加，避免一个人充的课被另一个人盖掉 */
+      if (typeof bv === "number" && typeof lv === "number" && typeof rv === "number" && bv !== lv) {
+        if (rv === lv) out[k] = rv;
+        else if (rv === bv) out[k] = lv;
+        else out[k] = rv + (lv - bv);
+        return;
+      }
+      if (JSON.stringify(bv) !== JSON.stringify(lv)) {
+        if (lv === undefined) delete out[k];
+        else out[k] = cloneJson(lv);
+      }
+    });
+    return out;
+  }
+  function mergeListByKey(baseArr, localArr, remoteArr, keyName) {
+    const base = new Map();
+    const local = new Map();
+    const remote = new Map();
+    (baseArr || []).forEach(function (x) { if (x && x[keyName] != null) base.set(x[keyName], x); });
+    (localArr || []).forEach(function (x) { if (x && x[keyName] != null) local.set(x[keyName], x); });
+    (remoteArr || []).forEach(function (x) { if (x && x[keyName] != null) remote.set(x[keyName], x); });
+    const out = [];
+    const seen = {};
+    /* 本机新增 / 修改的放前面（销课记录、排课都是新的在前） */
+    (localArr || []).forEach(function (x) {
+      if (!x || x[keyName] == null) return;
+      const k = x[keyName];
+      const old = base.get(k);
+      if (!old) { out.push(cloneJson(x)); seen[k] = 1; return; }
+      if (JSON.stringify(old) !== JSON.stringify(x)) {
+        out.push(remote.has(k) ? mergeFields(old, x, remote.get(k)) : cloneJson(x));
+        seen[k] = 1;
+      }
+    });
+    /* 云端新增 / 别人改过的补在后面；本机删掉的不再加回来 */
+    (remoteArr || []).forEach(function (x) {
+      if (!x || x[keyName] == null) return;
+      const k = x[keyName];
+      if (seen[k]) return;
+      if (base.has(k) && !local.has(k)) return;
+      out.push(cloneJson(x));
+      seen[k] = 1;
+    });
+    return out;
+  }
+  function mergeProgress(base, local, remote) {
+    const out = cloneJson(remote || {}) || {};
+    Object.keys(base || {}).forEach(function (k) {
+      if (!(local && k in local)) delete out[k];
+    });
+    Object.keys(local || {}).forEach(function (k) {
+      const bv = base ? base[k] : undefined;
+      const lv = local[k] || {};
+      const rv = out[k] || {};
+      if (bv && JSON.stringify(bv) === JSON.stringify(lv)) { out[k] = rv; return; }
+      const mergeWords = function (a, b) {
+        const set = {};
+        (a || []).concat(b || []).forEach(function (w) { if (w) set[w] = 1; });
+        return Object.keys(set);
+      };
+      out[k] = {
+        learned: mergeWords(rv.learned, lv.learned),
+        wrong: mergeWords(rv.wrong, lv.wrong),
+        known: mergeWords(rv.known, lv.known),
+      };
+    });
+    return out;
+  }
+  function mergeCloud(latest, local, base) {
+    const out = cloneJson(latest) || {};
+    base = base || {};
+    out.students = mergeListByKey(base.students, local.students, latest.students, "id");
+    out.classes = mergeListByKey(base.classes, local.classes, latest.classes, "id");
+    out.records = mergeListByKey(base.records, local.records, latest.records, "id");
+    out.reviews = mergeListByKey(base.reviews, local.reviews, latest.reviews, "id");
+    out.courses = mergeListByKey(base.courses, local.courses, latest.courses, "id");
+    out.coaches = mergeListByKey(base.coaches, local.coaches, latest.coaches, "name");
+    out.wrong = mergeListByKey(base.wrong, local.wrong, latest.wrong, "w");
+    out.progress = mergeProgress(base.progress, local.progress, latest.progress);
+    return out;
+  }
+  function applyCloudData(data) {
+    const keepUser = S ? S.user : null;
+    const keepSide = S ? !!S.sidebarCollapsed : false;
+    S = normalize(cloneJson(data));
+    S.user = keepUser || null;
+    S.sidebarCollapsed = keepSide;
+    try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ }
+  }
   function cloudPull() {
     if (!CLOUD_MODE) return Promise.resolve(false);
+    if (cloudPulling) return Promise.resolve(false);
+    /* 正在上课 / 复习时先不换掉本地数据，等这节课结束再同步 */
+    if (lesson) { cloudStale = true; return Promise.resolve(false); }
+    cloudPulling = true;
     return api("/api/state").then(function (r) {
+      cloudPulling = false;
       if (r.status === 200 && r.body && r.body.data) {
+        /* 请求发出去之后才进入课堂：这一份先不用，等下课再拉 */
+        if (lesson) { cloudStale = true; return false; }
         /* 本机还有没提交上去的改动（刚点了保存/删除）时，先别用云端旧数据盖掉它 */
-        if (cloudTimer || cloudPushing || cloudPending) return false;
-        const keepUser = S ? S.user : null;
-        const keepSide = S ? !!S.sidebarCollapsed : false;
-        S = normalize(r.body.data);
-        S.user = keepUser || null;
-        S.sidebarCollapsed = keepSide;
+        if (cloudTimer || cloudPushing || cloudPending || cloudDirty) return false;
+        applyCloudData(r.body.data);
         cloudRev = r.body.rev || 0;
-        try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ }
+        cloudBase = cloneJson(r.body.data);
         return true;
       }
       if (r.status === 404) return cloudPush(true).then(function () { return true; });
@@ -305,31 +416,46 @@
         return false;
       }
       return false;
-    });
+    }).catch(function () { cloudPulling = false; return false; });
   }
   function cloudPush(force) {
     if (!CLOUD_MODE) return Promise.resolve(false);
+    if (cloudPushing) { cloudPending = true; return Promise.resolve(false); }
     cloudPushing = true;
-    return api("/api/state", { method: "POST", body: JSON.stringify({ rev: force ? 0 : cloudRev, data: shareable() }) })
+    const payload = cloneJson(shareable());
+    const base = cloudBase ? cloneJson(cloudBase) : null;
+    return sendState(payload, base, force ? 0 : cloudRev, 0);
+  }
+  function sendState(payload, base, rev, attempt) {
+    return api("/api/state", { method: "POST", body: JSON.stringify({ rev: rev, data: payload }) })
       .then(function (r) {
-        cloudPushing = false;
         if (r.status === 200 && r.body) {
-          cloudRev = r.body.rev || cloudRev;
+          cloudPushing = false;
+          cloudRev = r.body.rev || rev;
           cloudRetry = 0;
+          cloudDirty = false;
+          cloudBase = cloneJson(payload);
           if (cloudPending) { cloudPending = false; cloudSchedule(); }
           return true;
         }
-        if (r.status === 409) {
-          /* 别人刚好也保存过：拿最新版本号把本机这次改动再提交一次，静默重试，不打断操作 */
-          cloudRev = (r.body && r.body.rev) || cloudRev;
-          if (cloudRetry < 2) {
-            cloudRetry++;
-            cloudPushing = false;
-            return cloudPush();
+        if (r.status === 409 && r.body && r.body.data) {
+          /* 别人刚好也保存过：把本机改动合并到云端最新数据上再提交，不覆盖别人的内容 */
+          const latest = r.body.data;
+          cloudRev = Number(r.body.rev) || rev;
+          const current = cloudPending ? cloneJson(shareable()) : payload;
+          const merged = mergeCloud(latest, current, base);
+          applyCloudData(merged);
+          cloudBase = cloneJson(latest);
+          if (attempt < 3) {
+            return sendState(cloneJson(merged), cloneJson(latest), cloudRev, attempt + 1);
           }
           cloudRetry = 0;
-          return cloudPull().then(function () { render(); toast("刚才网络有点忙，改动可能没保存上，麻烦再操作一次"); return false; });
+          cloudPushing = false;
+          cloudDirty = true;
+          toast("同时保存的人有点多，这次改动已保留在本机，稍后会自动再同步");
+          return false;
         }
+        cloudPushing = false;
         if (r.status === 401) setCloudToken("");
         if (r.status === 404) {
           showNoBackendTip();
@@ -341,6 +467,7 @@
         } else {
           toast("同步到云端失败（HTTP " + (r.status || "网络中断") + "），请稍后重试");
         }
+        cloudDirty = true;
         return false;
       });
   }
@@ -434,8 +561,12 @@
     saveState(s);
     return s;
   }
-  function saveState() {
-    try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ }
+  function saveState(st) {
+    const data = st || S;
+    try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* ignore */ }
+    /* 首次初始化只写本机，等云端拉取完成后再决定要不要上传 */
+    if (st) return;
+    if (CLOUD_MODE) cloudDirty = true;
     cloudSchedule();
   }
   const studentById = (id) => S.students.find((s) => s.id === id);
@@ -1011,6 +1142,31 @@
       window.speechSynthesis.speak(u);
     } catch (e) { /* ignore */ }
   }
+  /* 剪纸盒答对音效：用浏览器自带音频合成，不需要额外的音频文件 */
+  let chimeCtx = null;
+  function playChime() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!chimeCtx) chimeCtx = new AC();
+      if (chimeCtx.state === "suspended") chimeCtx.resume();
+      const t0 = chimeCtx.currentTime;
+      [880, 1174.66].forEach(function (freq, i) {
+        const osc = chimeCtx.createOscillator();
+        const gain = chimeCtx.createGain();
+        const t = t0 + i * 0.09;
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, t);
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.16, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+        osc.connect(gain);
+        gain.connect(chimeCtx.destination);
+        osc.start(t);
+        osc.stop(t + 0.26);
+      });
+    } catch (e) { /* ignore */ }
+  }
   function downloadCSV(filename, rows) {
     const csv = rows.map((r) => r.map((c) => {
       const s = String(c == null ? "" : c);
@@ -1422,6 +1578,34 @@
     if (noBtn) noBtn.classList.toggle("on", val === false);
     refreshGridMeta();
   }
+  /* 学前检测：一键把 30 个单词标成不认识（已经标过叉的优先算在内） */
+  function autoMarkWrong() {
+    const words = lesson.all || [];
+    if (!words.length) return;
+    const target = Math.min(30, words.length);
+    let count = words.filter(function (w) { return lesson.marks[w.w] === false; }).length;
+    words.forEach(function (w) {
+      if (count >= target) return;
+      if (lesson.marks[w.w] === undefined) { lesson.marks[w.w] = false; count++; }
+    });
+    for (let i = words.length - 1; i >= 0 && count < target; i--) {
+      const w = words[i];
+      if (lesson.marks[w.w] === true) { lesson.marks[w.w] = false; count++; }
+    }
+    words.forEach(function (w) {
+      const row = gridRowOf(w.w);
+      if (!row) return;
+      const val = lesson.marks[w.w];
+      row.classList.toggle("ok", val === true);
+      row.classList.toggle("bad", val === false);
+      const okBtn = row.querySelector('[data-action="grid-ok"]');
+      const noBtn = row.querySelector('[data-action="grid-no"]');
+      if (okBtn) okBtn.classList.toggle("on", val === true);
+      if (noBtn) noBtn.classList.toggle("on", val === false);
+    });
+    refreshGridMeta();
+    toast("已自动选择 " + count + " 个单词");
+  }
   function gridRowOf(word) {
     return $$(".pre-item").find(function (r) {
       const p = r.querySelector(".pw");
@@ -1457,12 +1641,15 @@
       return '<button class="btn btn-primary" data-action="posttest-submit"' +
         (marked === words.length ? "" : " disabled") + ">提交学后检测</button>";
     }
+    const autoBtn = '<button class="btn btn-ghost" data-action="pretest-auto-wrong">自动选择</button>';
     const allKnown = words.length > 0 && marked === words.length && wrong === 0;
     if (allKnown) {
-      return '<button class="btn btn-ghost" data-action="switch-course">切换词库</button>' +
+      return autoBtn +
+        '<button class="btn btn-ghost" data-action="switch-course">切换词库</button>' +
         '<button class="btn btn-primary" data-action="pretest-done">完成</button>';
     }
-    return '<button class="btn btn-primary" data-action="pretest-submit"' + (wrong ? "" : " disabled") + ">提交，开始学习</button>";
+    return autoBtn +
+      '<button class="btn btn-primary" data-action="pretest-submit"' + (wrong ? "" : " disabled") + ">提交，开始学习</button>";
   }
   function cycleGridWord(word) {
     lesson.gridState[word] = ((lesson.gridState[word] || 0) + 1) % 3;
@@ -1630,30 +1817,41 @@
   }
   /* ---- 剪纸盒 ---- */
   function viewCut() {
-    const rows = lesson.list.map(function (w) {
+    const active = lesson.list.filter(function (w) { return lesson.cutMark[w.w] === undefined; });
+    const green = lesson.list.filter(function (w) { return lesson.cutMark[w.w] === true; });
+    const red = lesson.list.filter(function (w) { return lesson.cutMark[w.w] === false; });
+    const rows = active.map(function (w) {
       const on = lesson.revealed[w.w];
-      const mk = lesson.cutMark[w.w];
-      const cls = mk === true ? " cut-ok" : mk === false ? " cut-bad" : "";
       return (
-        '<div class="pre-item' + cls + '">' +
+        '<div class="pre-item cut-row">' +
         '<div class="pw" data-action="cut-reveal" data-w="' + esc(w.w) + '">' +
         "<b>" + esc(w.w) + '</b><span class="ph2">' + esc(w.ph) + "</span>" +
         (on ? "<small>" + esc(w.m) + "</small>" : "") +
         "</div>" +
         '<div class="pm">' +
-        '<button class="' + (mk === true ? "on" : "") + '" data-action="cut-ok" data-w="' + esc(w.w) + '" title="对">✅</button>' +
-        '<button class="' + (mk === false ? "on" : "") + '" data-action="cut-no" data-w="' + esc(w.w) + '" title="叉">❌</button>' +
+        '<button data-action="cut-ok" data-w="' + esc(w.w) + '" title="对">✅</button>' +
+        '<button data-action="cut-no" data-w="' + esc(w.w) + '" title="叉">❌</button>' +
         "</div></div>"
       );
     }).join("");
+    const chips = function (list) {
+      return list.map(function (w) { return '<span class="cut-chip">' + esc(w.w) + "</span>"; }).join("");
+    };
     return (
       '<div class="section-title" style="margin-top:2px">' + blockTitle() +
       '<span class="link" data-action="lesson-quit">退出</span></div>' +
       '<div class="card sticky-bar" style="display:flex;align-items:center;gap:12px">' +
       '<div id="cutMeta" style="flex:1;font-size:13.5px">' + cutMetaHtml() + "</div>" +
-      '<button id="cutNext" class="btn btn-primary" data-action="block-next"' +
-      (lesson.list.every((w) => lesson.cutMark[w.w] !== undefined) ? "" : " disabled") + ">完成本组</button></div>" +
-      '<div class="pre-list">' + rows + "</div>"
+      '<span style="font-size:12.5px;color:var(--muted)">全部放进绿盒自动进入下一环节</span></div>' +
+      '<div class="pre-list">' + (rows || '<div class="cut-empty">这一组已经全部分好了</div>') + "</div>" +
+      '<div class="cut-boxes">' +
+      '<div class="cut-box green"><div class="cut-box-head">✅ 绿盒 <b>' + green.length + "</b></div>" +
+      (green.length ? '<div class="cut-box-body">' + chips(green) + "</div>" : '<div class="cut-none">答对的单词会到这里</div>') + "</div>" +
+      '<div class="cut-box red" role="button" tabindex="0" data-action="cut-red-reset">' +
+      '<div class="cut-box-head">❌ 红盒 <b>' + red.length + "</b>" +
+      (red.length ? '<span class="cut-hint">点这里放回</span>' : "") + "</div>" +
+      (red.length ? '<div class="cut-box-body">' + chips(red) + "</div>" : '<div class="cut-none">答错的单词会到这里</div>') +
+      "</div></div>"
     );
   }
   function cutMetaHtml() {
@@ -1666,21 +1864,42 @@
   }
   function refreshCutMeta() {
     const meta = document.getElementById("cutMeta");
-    const btn = document.getElementById("cutNext");
     if (meta) meta.innerHTML = cutMetaHtml();
-    if (btn) btn.disabled = !lesson.list.every((w) => lesson.cutMark[w.w] !== undefined);
   }
   function markCut(word, ok) {
     lesson.cutMark[word] = ok;
+    if (ok) playChime();
     const row = gridRowOf(word);
-    if (!row) { render(); return; }
-    row.classList.toggle("cut-ok", ok === true);
-    row.classList.toggle("cut-bad", ok === false);
-    const b1 = row.querySelector('[data-action="cut-ok"]');
-    const b2 = row.querySelector('[data-action="cut-no"]');
-    if (b1) b1.classList.toggle("on", ok === true);
-    if (b2) b2.classList.toggle("on", ok === false);
+    if (!row) { render(); cutCheckDone(); return; }
+    row.classList.add("fly-out");
+    setTimeout(function () {
+      if (!lesson || lesson.stage !== "cut") return;
+      render();
+      cutCheckDone();
+    }, 190);
     refreshCutMeta();
+  }
+  /* 红盒：把刚才打叉的单词全部放回原位 */
+  function resetCutWrong() {
+    if (!lesson || lesson.stage !== "cut") return;
+    const bad = lesson.list.filter(function (w) { return lesson.cutMark[w.w] === false; });
+    if (!bad.length) { toast("红盒里还没有单词"); return; }
+    bad.forEach(function (w) { delete lesson.cutMark[w.w]; });
+    render();
+    toast("已把 " + bad.length + " 个单词放回");
+  }
+  /* 一组全部进绿盒后，自动进入下一环节 */
+  function cutCheckDone() {
+    if (!lesson || lesson.stage !== "cut" || !lesson.list.length) return;
+    if (lesson._cutAdvancing) return;
+    const allGreen = lesson.list.every(function (w) { return lesson.cutMark[w.w] === true; });
+    if (!allGreen) return;
+    lesson._cutAdvancing = true;
+    setTimeout(function () {
+      if (!lesson || lesson.stage !== "cut") return;
+      lesson._cutAdvancing = false;
+      blockDone();
+    }, 620);
   }
   function cycleCutWord(word) {
     lesson.revealed[word] = !lesson.revealed[word];
@@ -3640,6 +3859,7 @@
       }
       case "grid-ok": markGrid(w, true); break;
       case "grid-no": markGrid(w, false); break;
+      case "pretest-auto-wrong": autoMarkWrong(); break;
       case "pretest-submit": submitPretest(); break;
       case "pretest-done": confirmAllKnown(); break;
       case "do-finish-all": closeModal(); finishAllKnown(); break;
@@ -3659,6 +3879,7 @@
       case "cut-reveal": cycleCutWord(w); break;
       case "cut-ok": markCut(w, true); break;
       case "cut-no": markCut(w, false); break;
+      case "cut-red-reset": resetCutWrong(); break;
       case "summary-mix": {
         const gi = lesson.block.gi;
         const mg = (MIX_AFTER[gi] || []).slice();
@@ -3908,7 +4129,16 @@
       renderLoginGate();
     });
     setInterval(function () {
-      if (cloudPushing || cloudTimer) return;
+      if (cloudPushing || cloudTimer || cloudPulling) return;
+      /* 上一次因为断网没传上去：优先重传，别让云端把本机还没上传的改动盖掉 */
+      if (cloudDirty) { cloudPush(); return; }
+      /* 上课中不拉取，避免课堂被别人的改动打断；下课后下一轮会自动补上 */
+      if (lesson) return;
+      if (cloudStale) {
+        cloudStale = false;
+        cloudPull().then(function (ok) { if (ok) { renderHeader(); render(); } });
+        return;
+      }
       /* 先只问版本号（很小），别人改过了才去拉整份数据 */
       api("/api/rev").then(function (r) {
         if (r.status === 200 && r.body && typeof r.body.rev === "number" && r.body.rev !== cloudRev) {

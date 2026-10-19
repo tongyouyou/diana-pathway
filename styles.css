@@ -631,7 +631,7 @@ textarea.input { resize: vertical; line-height: 1.7; font-family: inherit; }
   .study-tile { flex-direction: column; align-items: flex-start; gap: 6px; }
   .study-tile .st-word { min-width: 0; }
   .pre-item { padding: 9px 11px; }
-  .pre-item .pm button { width: 40px; }
+  .pre-item .pm button { width: 50px; height: 44px; font-size: 22px; }
   .kpi-row { grid-template-columns: 1fr; gap: 10px; }
   .sched-grid { grid-template-columns: 1fr; }
   .mgmt-row { grid-template-columns: 1fr; gap: 10px; }
@@ -776,6 +776,7 @@ textarea.input { resize: vertical; line-height: 1.7; font-family: inherit; }
   box-shadow: 0 1px 0 var(--line), 0 8px 18px rgba(16, 24, 40, .06);
 }
 .pre-list { display: flex; flex-direction: column; gap: 8px; }
+#gridBtns { flex-wrap: wrap; justify-content: flex-end; }
 .pre-item {
   display: flex; align-items: center; gap: 12px;
   background: #fff; border-radius: 12px; box-shadow: var(--shadow);
@@ -788,14 +789,70 @@ textarea.input { resize: vertical; line-height: 1.7; font-family: inherit; }
 .pre-item .pw small { color: var(--muted); font-size: 15px; }
 .pre-item .pm { flex: none; display: flex; gap: 6px; }
 .pre-item .pm button {
-  width: 44px; height: 32px; border: 1.5px solid var(--line); background: #fff;
-  border-radius: 9px; font-size: 15px; line-height: 1; cursor: pointer;
-  display: grid; place-items: center; opacity: .5;
+  width: 56px; height: 46px; border: 1.5px solid var(--line); background: #fff;
+  border-radius: 11px; font-size: 25px; line-height: 1; cursor: pointer;
+  display: grid; place-items: center; opacity: .62;
+  transition: transform .12s ease, border-color .12s ease, background .12s ease, opacity .12s ease;
 }
+.pre-item .pm button:hover { opacity: .9; }
+.pre-item .pm button:active { transform: scale(.92); }
 .pre-item .pm button.on { opacity: 1; border-color: var(--brand); background: var(--brand-soft); }
 .pre-item.cut-ok { border-color: var(--ok); background: var(--ok-soft); }
 .pre-item.cut-bad { border-color: var(--bad); background: var(--bad-soft); }
 .pre-item .pw .ph2 { color: var(--muted); font-size: 12.5px; margin-left: 8px; }
+
+/* ============ 剪纸盒小游戏：绿盒 / 红盒 ============ */
+.cut-row { animation: cutRowIn .22s ease both; }
+.cut-row.fly-out { opacity: 0; transform: translateY(16px) scale(.96); transition: opacity .18s ease, transform .18s ease; }
+@keyframes cutRowIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}
+.cut-empty {
+  border: 1.5px dashed var(--line); border-radius: 14px; background: #fff;
+  padding: 26px 16px; text-align: center; color: var(--muted); font-size: 14px;
+}
+.cut-boxes {
+  position: sticky; bottom: 10px; z-index: 5;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  margin-top: 16px; padding-top: 4px;
+}
+.cut-box {
+  min-height: 118px; padding: 12px 14px 14px; border-radius: 16px;
+  border: 2px dashed transparent; text-align: left; font: inherit; color: inherit;
+  box-shadow: 0 6px 20px rgba(16, 24, 40, .08);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.cut-box.green { border-color: #86dfb5; background: #eefbf4; }
+.cut-box.red { border-color: #f6b1aa; background: #fff1ef; cursor: pointer; }
+.cut-box.red:hover { box-shadow: 0 8px 24px rgba(240, 68, 56, .16); }
+.cut-box:active { transform: scale(.985); }
+.cut-box-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 800;
+}
+.cut-box-head b {
+  min-width: 24px; height: 22px; padding: 0 7px; border-radius: 999px;
+  display: inline-grid; place-items: center; font-size: 12.5px;
+  background: #fff; color: var(--muted);
+}
+.cut-box .cut-hint {
+  margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--bad);
+}
+.cut-box-body { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.cut-chip {
+  padding: 5px 11px; border-radius: 999px; background: #fff;
+  font-family: "Times New Roman", Times, "Songti SC", serif;
+  font-size: 15px; box-shadow: 0 1px 3px rgba(16, 24, 40, .08);
+  animation: cutChipIn .26s cubic-bezier(.2, .9, .3, 1.2) both;
+}
+.cut-box.green .cut-chip { color: #067647; }
+.cut-box.red .cut-chip { color: #b42318; }
+.cut-box .cut-none { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+@keyframes cutChipIn {
+  from { opacity: 0; transform: scale(.7) translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* ============ 识记（列表·每行一个） ============ */
 .study-tiles { display: flex; flex-direction: column; gap: 8px; }
