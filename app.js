@@ -304,7 +304,11 @@
       if (typeof bv === "number" && typeof lv === "number" && typeof rv === "number" && bv !== lv) {
         if (rv === lv) out[k] = rv;
         else if (rv === bv) out[k] = lv;
-        else out[k] = rv + (lv - bv);
+        else {
+          const next = rv + (lv - bv);
+          /* 两个人同时排同一名学员的课，最多扣到 0，不出现负课时 */
+          out[k] = k === "hours" ? Math.max(0, next) : next;
+        }
         return;
       }
       if (JSON.stringify(bv) !== JSON.stringify(lv)) {
