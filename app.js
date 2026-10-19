@@ -569,6 +569,10 @@
     if (CLOUD_MODE) cloudDirty = true;
     cloudSchedule();
   }
+  /* 只改界面状态（比如左侧导航收起）时存本机就好，不用把整份数据传上云 */
+  function saveLocal() {
+    try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ }
+  }
   const studentById = (id) => S.students.find((s) => s.id === id);
   const progKey = (studentId, courseId) => (studentId || "shared") + "::" + courseId;
   const courseProgress = (studentId, courseId) => S.progress[progKey(studentId, courseId)] || { learned: [], wrong: [] };
@@ -1115,11 +1119,11 @@
     const wasTeach = !!prevRouteForSidebar && TEACH_ROUTES.indexOf(prevRouteForSidebar) >= 0;
     if (nowTeach && !wasTeach) {
       sidebarBeforeLesson = !!S.sidebarCollapsed;
-      if (!S.sidebarCollapsed) { S.sidebarCollapsed = true; saveState(); }
+      if (!S.sidebarCollapsed) { S.sidebarCollapsed = true; saveLocal(); }
     } else if (!nowTeach && wasTeach) {
       const back = sidebarBeforeLesson === true;
       sidebarBeforeLesson = null;
-      if (!!S.sidebarCollapsed !== back) { S.sidebarCollapsed = back; saveState(); }
+      if (!!S.sidebarCollapsed !== back) { S.sidebarCollapsed = back; saveLocal(); }
     }
     prevRouteForSidebar = route.name;
   }
@@ -3759,7 +3763,7 @@
       case "do-restore": doRestore(); break;
       case "toggle-sidebar":
         S.sidebarCollapsed = !S.sidebarCollapsed;
-        saveState();
+        saveLocal();
         applySidebar();
         break;
       case "nav-to":
