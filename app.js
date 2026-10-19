@@ -34,6 +34,9 @@
     return out;
   };
   const dash = (v) => (v === 0 || v ? esc(v) : '<span style="color:var(--muted)">—</span>');
+  const SVG_CHECK = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const SVG_CROSS = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>';
+  const SVG_UNDO = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5L4 10l5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 10h8a6 6 0 0 1 6 6v3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
 
   const WEEK_CN = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
   const SUBJECTS = ["单词"];
@@ -1555,8 +1558,8 @@
         (st >= 2 ? '<small>' + esc(w.m) + "</small>" : "") +
         "</div>" +
         '<div class="pm">' +
-        '<button class="' + (mk === true ? "on" : "") + '" data-action="grid-ok" data-w="' + esc(w.w) + '" title="对">✅</button>' +
-        '<button class="' + (mk === false ? "on" : "") + '" data-action="grid-no" data-w="' + esc(w.w) + '" title="叉">❌</button>' +
+        '<button class="' + (mk === true ? "on" : "") + '" data-action="grid-ok" data-w="' + esc(w.w) + '" title="对" aria-label="对">' + SVG_CHECK + "</button>" +
+        '<button class="' + (mk === false ? "on" : "") + '" data-action="grid-no" data-w="' + esc(w.w) + '" title="叉" aria-label="叉">' + SVG_CROSS + "</button>" +
         "</div></div>"
       );
     }).join("") + "</div>";
@@ -1837,38 +1840,40 @@
         (on ? "<small>" + esc(w.m) + "</small>" : "") +
         "</div>" +
         '<div class="pm">' +
-        '<button data-action="cut-ok" data-w="' + esc(w.w) + '" title="对">✅</button>' +
-        '<button data-action="cut-no" data-w="' + esc(w.w) + '" title="叉">❌</button>' +
+        '<button data-action="cut-ok" data-w="' + esc(w.w) + '" title="对" aria-label="对">' + SVG_CHECK + "</button>" +
+        '<button data-action="cut-no" data-w="' + esc(w.w) + '" title="叉" aria-label="叉">' + SVG_CROSS + "</button>" +
         "</div></div>"
       );
     }).join("");
     const chips = function (list) {
       return list.map(function (w) { return '<span class="cut-chip">' + esc(w.w) + "</span>"; }).join("");
     };
+    const count = function (n) {
+      return '<b class="cut-count' + (n ? "" : " is-zero") + '">' + n + "</b>";
+    };
     return (
       '<div class="section-title" style="margin-top:2px">' + blockTitle() +
       '<span class="link" data-action="lesson-quit">退出</span></div>' +
-      '<div class="card sticky-bar" style="display:flex;align-items:center;gap:12px">' +
-      '<div id="cutMeta" style="flex:1;font-size:13.5px">' + cutMetaHtml() + "</div>" +
-      '<span style="font-size:12.5px;color:var(--muted)">全部放进绿盒自动进入下一环节</span></div>' +
-      '<div class="pre-list">' + (rows || '<div class="cut-empty">这一组已经全部分好了</div>') + "</div>" +
+      '<div class="card sticky-bar" style="display:flex;align-items:center">' +
+      '<div id="cutMeta" style="flex:1">' + cutMetaHtml() + "</div></div>" +
+      '<div class="pre-list">' + rows + "</div>" +
       '<div class="cut-boxes">' +
-      '<div class="cut-box green"><div class="cut-box-head">✅ 绿盒 <b>' + green.length + "</b></div>" +
-      (green.length ? '<div class="cut-box-body">' + chips(green) + "</div>" : '<div class="cut-none">答对的单词会到这里</div>') + "</div>" +
-      '<div class="cut-box red" role="button" tabindex="0" data-action="cut-red-reset">' +
-      '<div class="cut-box-head">❌ 红盒 <b>' + red.length + "</b>" +
-      (red.length ? '<span class="cut-hint">点这里放回</span>' : "") + "</div>" +
-      (red.length ? '<div class="cut-box-body">' + chips(red) + "</div>" : '<div class="cut-none">答错的单词会到这里</div>') +
+      '<div class="cut-box green">' +
+      '<div class="cut-box-top"><span class="cut-icon">' + SVG_CHECK + count(green.length) + "</span></div>" +
+      '<div class="cut-box-body' + (green.length ? "" : " is-empty") + '">' + chips(green) + "</div></div>" +
+      '<div class="cut-box red' + (red.length ? " has-items" : "") + '" role="button" tabindex="0" data-action="cut-red-reset" aria-label="放回" title="放回">' +
+      '<div class="cut-box-top"><span class="cut-icon">' + SVG_CROSS + count(red.length) + "</span>" +
+      (red.length ? '<span class="cut-return">' + SVG_UNDO + "</span>" : "") + "</div>" +
+      '<div class="cut-box-body' + (red.length ? "" : " is-empty") + '">' + chips(red) + "</div>" +
       "</div></div>"
     );
   }
   function cutMetaHtml() {
     const n = lesson.list.length;
     const marked = lesson.list.filter((w) => lesson.cutMark[w.w] !== undefined).length;
-    const okN = lesson.list.filter((w) => lesson.cutMark[w.w] === true).length;
-    const badN = lesson.list.filter((w) => lesson.cutMark[w.w] === false).length;
-    return '已标记 <b style="color:var(--brand)">' + marked + "</b> / " + n +
-      ' &nbsp;·&nbsp; ✅ <b style="color:var(--ok)">' + okN + '</b> &nbsp; ❌ <b style="color:var(--bad)">' + badN + "</b>";
+    const pct = n ? Math.round((marked / n) * 100) : 0;
+    return '<div class="cut-progress"><span><b>' + marked + "</b> / " + n + "</span>" +
+      '<i><em style="width:' + pct + '%"></em></i></div>';
   }
   function refreshCutMeta() {
     const meta = document.getElementById("cutMeta");
@@ -1891,7 +1896,7 @@
   function resetCutWrong() {
     if (!lesson || lesson.stage !== "cut") return;
     const bad = lesson.list.filter(function (w) { return lesson.cutMark[w.w] === false; });
-    if (!bad.length) { toast("红盒里还没有单词"); return; }
+    if (!bad.length) return;
     bad.forEach(function (w) { delete lesson.cutMark[w.w]; });
     render();
     toast("已把 " + bad.length + " 个单词放回");
