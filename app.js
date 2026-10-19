@@ -1849,7 +1849,7 @@
       return list.map(function (w) { return '<span class="cut-chip">' + esc(w.w) + "</span>"; }).join("");
     };
     const count = function (n) {
-      return '<b class="cut-count' + (n ? "" : " is-zero") + '">' + n + "</b>";
+      return n ? '<b class="cut-count">' + n + "</b>" : "";
     };
     return (
       '<div class="section-title" style="margin-top:2px">' + blockTitle() +
@@ -1892,7 +1892,7 @@
     }, 190);
     refreshCutMeta();
   }
-  /* 红盒：把刚才打叉的单词全部放回原位 */
+  /* 叉号区：把刚才打错的单词全部放回原位 */
   function resetCutWrong() {
     if (!lesson || lesson.stage !== "cut") return;
     const bad = lesson.list.filter(function (w) { return lesson.cutMark[w.w] === false; });
@@ -1901,7 +1901,7 @@
     render();
     toast("已把 " + bad.length + " 个单词放回");
   }
-  /* 一组全部进绿盒后，自动进入下一环节 */
+  /* 一组全部标记正确后，自动进入下一环节 */
   function cutCheckDone() {
     if (!lesson || lesson.stage !== "cut" || !lesson.list.length) return;
     if (lesson._cutAdvancing) return;
