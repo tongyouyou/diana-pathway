@@ -1145,7 +1145,7 @@
     } catch (e) { voiceGB = null; }
   }
   /* 浏览器没有语音合成时，用在线词典发音兜底 */
-  function playWordAudio(text) {
+  function playWordAudio(text, quiet) {
     const word = String(text || "").trim();
     if (!word) return;
     try {
@@ -1163,10 +1163,15 @@
       wordAudio.src = "https://dict.youdao.com/dictvoice?audio=" + encodeURIComponent(word) + "&type=1";
       const p = wordAudio.play();
       if (p && p.catch) {
-        p.catch(function () { toast("发音加载失败，请检查网络后重试"); });
+        p.catch(function (err) {
+          const name = err && err.name;
+          /* 连续点单词时，上一个音频被暂停会报 AbortError，这不是网络失败 */
+          if (name === "AbortError" || name === "NotAllowedError") return;
+          if (!quiet) toast("发音加载失败，请检查网络后重试");
+        });
       }
     } catch (e) {
-      toast("当前浏览器无法播放发音，请换用 Chrome 或 Safari");
+      if (!quiet) toast("当前浏览器无法播放发音，请换用 Chrome 或 Safari");
     }
   }
   function speak(text) {
@@ -1176,14 +1181,14 @@
     if (speakFallbackTimer) { clearTimeout(speakFallbackTimer); speakFallbackTimer = null; }
     try {
       if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
-        playWordAudio(word);
+        playWordAudio(word, false);
         return;
       }
       if (!voiceGB) pickVoice();
       const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
       if (!voices || !voices.length) {
         /* 有些平板虽然“有”语音合成，但一个可用语音都没有 */
-        playWordAudio(word);
+        playWordAudio(word, false);
         return;
       }
       let started = false;
@@ -1191,20 +1196,32 @@
       u.lang = "en-GB";
       u.rate = 0.9;
       if (voiceGB) u.voice = voiceGB;
-      u.onstart = function () { started = true; };
+      let fallbackTimer = null;
+      const clearFallback = function () {
+        if (!fallbackTimer) return;
+        clearTimeout(fallbackTimer);
+        if (speakFallbackTimer === fallbackTimer) speakFallbackTimer = null;
+        fallbackTimer = null;
+      };
+      u.onstart = function () { started = true; clearFallback(); };
+      u.onend = clearFallback;
       u.onerror = function () {
-        if (seq === speakSeq && !started) playWordAudio(word);
+        if (seq === speakSeq && !started) playWordAudio(word, false);
       };
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
-      /* 个别浏览器 speechSynthesis 存在但不出声：600ms 内没开始就换词典音频 */
-      speakFallbackTimer = setTimeout(function () {
+      /* 个别浏览器 speechSynthesis 存在但不出声：确认真的没开始，再悄悄换词典音频 */
+      fallbackTimer = setTimeout(function () {
         if (seq !== speakSeq || started) return;
+        try {
+          if (window.speechSynthesis.speaking || window.speechSynthesis.pending) return;
+        } catch (e) { /* ignore */ }
         try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
-        playWordAudio(word);
-      }, 600);
+        playWordAudio(word, true);
+      }, 1400);
+      speakFallbackTimer = fallbackTimer;
     } catch (e) {
-      playWordAudio(word);
+      playWordAudio(word, false);
     }
   }
   /* 剪纸盒答对音效：用浏览器自带音频合成，不需要额外的音频文件 */
