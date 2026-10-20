@@ -1,4 +1,12 @@
 /* ============ 基础 ============ */
+/* 品牌手写体：随网页一起加载，避免有的电脑/平板没有同款字体 */
+@font-face {
+  font-family: "DP Brand";
+  src: url("assets/great-vibes.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 :root {
   --brand: #4839db;
@@ -62,8 +70,8 @@ body {
 }
 .brand-text { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .brand-text strong {
-  font-family: "Snell Roundhand", "Apple Chancery", "Segoe Script", "Brush Script MT", Georgia, "Songti SC", serif;
-  font-size: 27px; font-weight: 600; letter-spacing: .3px; line-height: 1.1;
+  font-family: "DP Brand", "Snell Roundhand", "Apple Chancery", "Segoe Script", "Brush Script MT", Georgia, "Songti SC", serif;
+  font-size: 27px; font-weight: 400; letter-spacing: .3px; line-height: 1.1;
   background: linear-gradient(94deg, #ffffff 6%, #ffe6ae 48%, #fff7e3 70%, #ffffff 96%);
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent; color: transparent;
@@ -948,8 +956,8 @@ textarea.input { resize: vertical; line-height: 1.7; font-family: inherit; }
 }
 @keyframes loginIn { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
 .login-logo {
-  font-family: "Snell Roundhand", "Apple Chancery", "Segoe Script", "Brush Script MT", Georgia, "Songti SC", serif;
-  font-size: 34px; font-weight: 600; letter-spacing: .4px; line-height: 1.15;
+  font-family: "DP Brand", "Snell Roundhand", "Apple Chancery", "Segoe Script", "Brush Script MT", Georgia, "Songti SC", serif;
+  font-size: 34px; font-weight: 400; letter-spacing: .4px; line-height: 1.15;
   text-align: center;
   background: linear-gradient(96deg, #4436d6 8%, #7b61ff 52%, #9a86ff 78%, #4436d6 98%);
   -webkit-background-clip: text; background-clip: text;

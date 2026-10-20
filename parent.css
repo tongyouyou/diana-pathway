@@ -125,7 +125,7 @@ body {
 /* ============ 登录 ============ */
 .login { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 28px 22px 40px;
   background: radial-gradient(680px 380px at 50% -8%, #e9e3ff 0%, rgba(233, 227, 255, 0) 70%), linear-gradient(180deg, #f7f8fc, #eef1f8); }
-.login .brand { font-family: "Snell Roundhand", "Apple Chancery", Georgia, serif; font-size: 34px; text-align: center; font-weight: 700;
+.login .brand { font-family: "DP Brand", "Snell Roundhand", "Apple Chancery", Georgia, serif; font-size: 34px; text-align: center; font-weight: 400;
   background: linear-gradient(96deg, #4436d6, #7b61ff 55%, #4436d6); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .login .tip { text-align: center; color: var(--muted); font-size: 12.5px; margin: 8px 0 24px; }
 .login .card { padding: 20px 16px; }
@@ -165,3 +165,12 @@ body {
 /* ============ 提示 ============ */
 .toast-root { position: fixed; left: 50%; bottom: 110px; transform: translateX(-50%); z-index: 99; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
 .toast { background: rgba(16, 24, 40, .9); color: #fff; font-size: 13px; padding: 9px 15px; border-radius: 999px; }
+/* 品牌手写体：随网页一起加载，保证各设备一致 */
+@font-face {
+  font-family: "DP Brand";
+  src: url("assets/great-vibes.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
