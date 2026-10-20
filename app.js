@@ -1136,6 +1136,7 @@
   }
   let voiceGB = null;
   let wordAudio = null;
+  let audioSeq = 0;
   let speakSeq = 0;
   let speakFallbackTimer = null;
   function pickVoice() {
@@ -1144,35 +1145,56 @@
       voiceGB = vs.find((v) => /en[-_]GB/i.test(v.lang)) || vs.find((v) => /english \(united kingdom\)|kate|daniel|serena|arthur/i.test(v.name)) || null;
     } catch (e) { voiceGB = null; }
   }
-  /* 浏览器没有语音合成时，用在线词典发音兜底 */
-  function playWordAudio(text, quiet) {
+  /* 浏览器没有语音合成时，用在线音频兜底；多个音源依次尝试 */
+  function playWordAudio(text) {
     const word = String(text || "").trim();
     if (!word) return;
-    try {
-      if (typeof Audio === "undefined") {
-        toast("当前浏览器无法播放发音，请换用 Chrome 或 Safari");
-        return;
-      }
-      if (!wordAudio) {
-        wordAudio = new Audio();
-        wordAudio.preload = "auto";
-        wordAudio.playsInline = true;
-      }
-      wordAudio.pause();
-      wordAudio.currentTime = 0;
-      wordAudio.src = "https://dict.youdao.com/dictvoice?audio=" + encodeURIComponent(word) + "&type=1";
-      const p = wordAudio.play();
-      if (p && p.catch) {
-        p.catch(function (err) {
-          const name = err && err.name;
-          /* 连续点单词时，上一个音频被暂停会报 AbortError，这不是网络失败 */
-          if (name === "AbortError" || name === "NotAllowedError") return;
-          if (!quiet) toast("发音加载失败，请检查网络后重试");
-        });
-      }
-    } catch (e) {
-      if (!quiet) toast("当前浏览器无法播放发音，请换用 Chrome 或 Safari");
-    }
+    if (typeof Audio === "undefined") return;
+    const enc = encodeURIComponent(word);
+    const sources = [
+      "https://dict.youdao.com/dictvoice?audio=" + enc + "&type=1",
+      "https://dict.youdao.com/dictvoice?audio=" + enc + "&type=2",
+      "https://fanyi.baidu.com/gettts?lan=en&text=" + enc + "&spd=3&source=web",
+      "https://translate.google.com/translate_tts?ie=UTF-8&q=" + enc + "&tl=en&client=tw-ob",
+    ];
+    const seq = ++audioSeq;
+    try { if (wordAudio) wordAudio.pause(); } catch (e) { /* ignore */ }
+    let idx = 0;
+    const tryNext = function () {
+      if (seq !== audioSeq || idx >= sources.length) return;
+      const url = sources[idx++];
+      let a = null;
+      try { a = new Audio(); } catch (e) { return; }
+      wordAudio = a;
+      a.preload = "auto";
+      a.playsInline = true;
+      let settled = false;
+      const next = function () {
+        if (settled) return;
+        settled = true;
+        if (seq !== audioSeq) return;
+        try { a.pause(); } catch (e) { /* ignore */ }
+        tryNext();
+      };
+      a.onerror = next;
+      a.onplaying = function () { settled = true; };
+      try {
+        a.src = url;
+        const p = a.play();
+        if (p && p.catch) {
+          p.catch(function (err) {
+            const name = err && err.name;
+            if (name === "AbortError" || name === "NotAllowedError") return;
+            next();
+          });
+        }
+        setTimeout(function () {
+          if (seq !== audioSeq || settled) return;
+          if (a.paused) next();
+        }, 3000);
+      } catch (e) { next(); }
+    };
+    tryNext();
   }
   function speak(text) {
     const word = String(text || "").trim();
@@ -1181,14 +1203,14 @@
     if (speakFallbackTimer) { clearTimeout(speakFallbackTimer); speakFallbackTimer = null; }
     try {
       if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
-        playWordAudio(word, false);
+        playWordAudio(word);
         return;
       }
       if (!voiceGB) pickVoice();
       const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
       if (!voices || !voices.length) {
         /* 有些平板虽然“有”语音合成，但一个可用语音都没有 */
-        playWordAudio(word, false);
+        playWordAudio(word);
         return;
       }
       let started = false;
@@ -1206,7 +1228,7 @@
       u.onstart = function () { started = true; clearFallback(); };
       u.onend = clearFallback;
       u.onerror = function () {
-        if (seq === speakSeq && !started) playWordAudio(word, false);
+        if (seq === speakSeq && !started) playWordAudio(word);
       };
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
@@ -1217,11 +1239,11 @@
           if (window.speechSynthesis.speaking || window.speechSynthesis.pending) return;
         } catch (e) { /* ignore */ }
         try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
-        playWordAudio(word, true);
+        playWordAudio(word);
       }, 1400);
       speakFallbackTimer = fallbackTimer;
     } catch (e) {
-      playWordAudio(word, false);
+      playWordAudio(word);
     }
   }
   /* 剪纸盒答对音效：用浏览器自带音频合成，不需要额外的音频文件 */
