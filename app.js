@@ -1477,17 +1477,20 @@
     const words = courseWords(c).filter((w) => ls[w.w]);
     if (!words.length) { toast("这个词库还没有已学单词"); return; }
     const chunks = groupsOf(words, 5);
+    /* 复习要把前面学过的所有单词都过一遍，不是只复习第一组 */
+    const blocks = [];
+    chunks.forEach(function (_, i) {
+      blocks.push({ kind: "cut", gi: i, order: "shuffle" });
+      blocks.push({ kind: "cut", gi: i, order: "seq" });
+    });
+    blocks.push({ kind: "summary", gi: chunks.length - 1, review: true, all: true });
     lesson = {
-      courseId: courseId, studentId: sid, classId: null, mode: "review",
+      courseId: courseId, studentId: sid, classId: pending ? pending.classId : null, mode: "review",
       phase: "run",
-      all: courseWords(c), groups: chunks,
-      blocks: [
-        { kind: "cut", gi: 0, order: "shuffle" },
-        { kind: "cut", gi: 0, order: "seq" },
-        { kind: "summary", gi: 0, review: true },
-      ],
+      all: words, groups: chunks, blocks,
       bi: 0, stage: "", list: [], idx: 0, revealed: {},
       listenMark: {}, cutMark: {}, result: {},
+      reviewWords: words, reviewFirst: {},
     };
     enterBlock();
   }
@@ -1881,6 +1884,9 @@
   }
   function markCut(word, ok) {
     lesson.cutMark[word] = ok;
+    if (lesson.mode === "review" && lesson.reviewFirst && lesson.reviewFirst[word] === undefined) {
+      lesson.reviewFirst[word] = ok;
+    }
     if (ok) playChime();
     const row = gridRowOf(word);
     if (!row) { render(); cutCheckDone(); return; }
@@ -1940,6 +1946,7 @@
   }
   /* ---- 小结 ---- */
   function viewSummary() {
+    if (lesson.mode === "review") return viewReviewSummary();
     const b = lesson.block;
     const isMixSummary = !!b.mix;
     const g = isMixSummary
@@ -1956,20 +1963,43 @@
       : blockTitle();
     return (
       '<div class="card"><div class="result-hero">' +
-      '<div style="font-size:17px;font-weight:800">' + (lesson.mode === "review" ? "复习小结" : title) + " 完成！</div>" +
+      '<div style="font-size:17px;font-weight:800">' + title + " 完成！</div>" +
       '<div style="color:var(--muted);font-size:12.5px;margin-top:6px">本组 ' + g.length + " 个单词</div></div>" +
       '<div class="outcome"><div class="o ok"><b>' + okCount + "</b><span>剪纸盒答对</span></div>" +
       '<div class="o bad"><b>' + badCount + "</b><span>剪纸盒答错</span></div></div></div>" +
       '<div class="card"><div class="section-title" style="margin-top:0">本组单词（' + g.length + "）</div>" + rows + "</div>" +
       '<div style="display:flex;gap:10px;margin-top:12px">' +
-      (lesson.mode === "review"
-        ? '<button class="btn btn-primary" style="flex:1;padding:13px" data-action="lesson-quit">完成复习</button>'
-        : (isMixSummary ? "" : '<button class="btn btn-ghost" style="flex:1;padding:13px" data-action="summary-redo">重新学习</button>') +
-          (hasMix && !isMixSummary
-            ? '<button class="btn btn-ghost" style="flex:1;padding:13px" data-action="summary-mix">混合混组</button>'
-            : (isLast ? "" : '<button class="btn btn-ghost" style="flex:1;padding:13px" data-action="summary-next">下一组</button>')) +
-          '<button class="btn btn-primary" style="flex:1;padding:13px" data-action="summary-post">学后检测</button>') +
+      (isMixSummary ? "" : '<button class="btn btn-ghost" style="flex:1;padding:13px" data-action="summary-redo">重新学习</button>') +
+      (hasMix && !isMixSummary
+        ? '<button class="btn btn-ghost" style="flex:1;padding:13px" data-action="summary-mix">混合混组</button>'
+        : (isLast ? "" : '<button class="btn btn-ghost" style="flex:1;padding:13px" data-action="summary-next">下一组</button>')) +
+      '<button class="btn btn-primary" style="flex:1;padding:13px" data-action="summary-post">学后检测</button>' +
       "</div>"
+    );
+  }
+  function viewReviewSummary() {
+    const words = lesson.reviewWords || [];
+    const first = lesson.reviewFirst || {};
+    const wrong = words.filter((w) => first[w.w] === false);
+    const ok = words.length - wrong.length;
+    const pct = words.length ? Math.round((ok / words.length) * 100) : 0;
+    const rows = wrong.slice(0, 30).map(function (w) {
+      return '<div class="word-row"><span class="en">' + esc(w.w) + '</span><span class="cn">' + esc(w.m) + "</span></div>";
+    }).join("");
+    return (
+      '<div class="section-title" style="margin-top:2px">复习小结<span class="link" data-action="lesson-quit">退出</span></div>' +
+      '<div class="card review-summary-card"><div class="result-hero">' +
+      '<div class="review-finish-kicker">复习完成</div>' +
+      '<div class="review-finish-score"><b>' + pct + '</b><span>%</span><small>一次答对率</small></div></div>' +
+      '<div class="outcome" style="grid-template-columns:repeat(3,1fr)">' +
+      '<div class="o ok"><b>' + words.length + "</b><span>复习单词</span></div>" +
+      '<div class="o brand"><b>' + ok + "</b><span>一次答对</span></div>" +
+      '<div class="o bad"><b>' + wrong.length + "</b><span>需要再看</span></div></div></div>" +
+      (wrong.length
+        ? '<div class="card"><div class="section-title" style="margin-top:0">需要再看一遍（' + wrong.length + "）</div>" +
+          rows + (wrong.length > 30 ? '<div class="empty">还有 ' + (wrong.length - 30) + " 个，学习报告里会记录</div>" : "") + "</div>"
+        : '<div class="card"><div class="empty">全部一次答对，太棒了</div></div>') +
+      '<button class="btn btn-primary btn-block" style="padding:14px;margin-top:12px" data-action="review-finish">完成复习 · 查看学习报告</button>'
     );
   }
   /* ---- 学后检测 ---- */
@@ -2076,6 +2106,9 @@
         time: (cls && cls.time) || "",
         correct: words.length - wrong.length, total: words.length,
         words: words.map((w) => ({ w: w.w, ph: w.ph, m: w.m })),
+        newCount: words.length, newTotal: words.length,
+        newCorrect: words.length - wrong.length, newForgot: wrong.length,
+        reviewCount: 0, reviewTotal: 0, reviewCorrect: 0,
         minutes: type.min,
       };
       S.records.unshift(rec);
@@ -2087,6 +2120,47 @@
     route.name = "schedule";
     render();
     toast("已创建抗遗忘并下课");
+  }
+  function finishReview() {
+    if (!lesson) return;
+    const reviewed = lesson.reviewWords || [];
+    const first = lesson.reviewFirst || {};
+    const wrong = reviewed.filter(function (w) { return first[w.w] === false; });
+    const ok = reviewed.length - wrong.length;
+    const cls = S.classes.find((x) => x.id === lesson.classId);
+    const stu = studentById(lesson.studentId);
+    let rec = null;
+    if (cls) {
+      const type = typeByKey(cls.type);
+      wrong.forEach(function (w) {
+        if (!S.wrong.some((x) => x.w === w.w)) S.wrong.push({ w: w.w, ph: w.ph, m: w.m, ex: w.ex });
+      });
+      rec = {
+        id: uid(), date: todayKey(), studentId: lesson.studentId,
+        student: stu ? stu.name : "学员", course: courseName(lesson.courseId), courseId: lesson.courseId,
+        type: type.label, subject: "单词复习",
+        coach: cls.coach || (S.user && S.user.name) || "Diana",
+        time: cls.time || "",
+        correct: ok, total: reviewed.length,
+        words: wrong.map((w) => ({ w: w.w, ph: w.ph, m: w.m })),
+        reviewCount: reviewed.length, reviewTotal: reviewed.length, reviewCorrect: ok,
+        newCount: 0, newTotal: 0, newCorrect: 0, newForgot: 0,
+        minutes: type.min,
+      };
+      S.records.unshift(rec);
+      cls.status = "已完成";
+      saveState();
+    }
+    lesson = null;
+    pending = null;
+    route.name = rec ? "schedule" : (currentCourseId ? "course" : "schedule");
+    render();
+    if (rec) {
+      toast("复习完成，已生成学习报告");
+      openLearningReport(rec.id);
+    } else {
+      toast("复习完成");
+    }
   }
 
   /* ---------------- 学员 ---------------- */
@@ -2965,7 +3039,8 @@
             "<td>" + esc(r.course || r.subject || "") + "</td>" +
             "<td>" + (r.time ? esc(r.date + " " + r.time) : "—") + "</td>" +
             "<td>" + (endStr ? esc(r.date + " " + endStr) : "—") + "</td>" +
-            '<td class="c-ops"><button class="btn" data-action="rec-words" data-id="' + r.id + '">课后打印</button></td>' +
+            '<td class="c-ops"><button class="btn" data-action="rec-words" data-id="' + r.id + '">课后打印</button>' +
+            '<button class="btn btn-primary" data-action="rec-report" data-id="' + r.id + '">学习报告</button></td>' +
             "</tr>";
         }).join("")
       : '<tr><td colspan="8"><div class="empty">还没有销课记录，上完课会自动生成</div></td></tr>';
@@ -3209,9 +3284,10 @@
   }
 
   /* ---------------- 弹窗 ---------------- */
-  function openModal(inner) {
+  function openModal(inner, extraClass) {
     document.getElementById("modalRoot").innerHTML =
-      '<div class="modal-backdrop" data-action="backdrop"><div class="modal">' + inner + "</div></div>";
+      '<div class="modal-backdrop" data-action="backdrop"><div class="modal' +
+      (extraClass ? " " + extraClass : "") + '">' + inner + "</div></div>";
   }
   function closeModal() {
     if (breakTimer) { clearInterval(breakTimer); breakTimer = null; }
@@ -3676,6 +3752,165 @@
     downloadCSV([rec.student, rec.course || "", rec.date, label].join("-") + ".csv", rows);
     toast("已导出：" + label + "（" + words.length + " 个单词）");
   }
+  /* ---------------- 学习报告 ---------------- */
+  function recordReportStats(rec) {
+    const newTotal = Number(rec.newTotal != null ? rec.newTotal : (rec.total != null ? rec.total : (rec.words || []).length)) || 0;
+    const newCorrect = Number(rec.newCorrect != null ? rec.newCorrect : (rec.correct || 0)) || 0;
+    const newForgot = Number(rec.newForgot != null ? rec.newForgot : Math.max(0, newTotal - newCorrect)) || 0;
+    const reviewTotal = Number(rec.reviewTotal != null ? rec.reviewTotal : (rec.reviewCount || 0)) || 0;
+    const reviewCorrect = Number(rec.reviewCorrect || 0) || 0;
+    return {
+      newTotal, newCorrect, newForgot,
+      reviewTotal, reviewCorrect,
+      reviewRate: reviewTotal ? Math.round((reviewCorrect / reviewTotal) * 100) : null,
+      forgetRate: newTotal ? Math.round((newForgot / newTotal) * 100) : null,
+    };
+  }
+  function seededPick(arr, n, seed) {
+    const a = arr.slice();
+    let x = seed || 1;
+    for (let i = a.length - 1; i > 0; i--) {
+      x = (x * 9301 + 49297) % 233280;
+      const j = x % (i + 1);
+      const tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+    }
+    return a.slice(0, n);
+  }
+  function reportMessages(rec, s) {
+    const notes = [];
+    if (s.reviewTotal) {
+      if (s.reviewRate >= 90) notes.push("这次复习很扎实，之前学过的词已经稳稳接住了。");
+      else if (s.reviewRate >= 70) notes.push("这次复习整体不错，错的几个词再回看一遍会更牢。");
+      else notes.push("今天暴露出来的遗忘点很有价值，下一次重点把它们补上。");
+    }
+    if (s.newTotal) {
+      if (s.forgetRate <= 10) notes.push("新词吸收得很快，接下来按抗遗忘节奏复习，会记得更久。");
+      else if (s.forgetRate <= 30) notes.push("新词大部分已经跟上，少数易错词建议下次课再听写一遍。");
+      else notes.push("今天的新词有点多，别着急，先挑最不熟的词分批复习。");
+    }
+    const general = [
+      "每一次认真复习，都会在后面的阅读和写作里变成底气。",
+      "单词不是一次记住的，今天多看一眼，明天就少忘一点。",
+      "把错词当成路标，它们会带你走到更稳的地方。",
+      "保持这个节奏，积累会在不知不觉中变成优势。",
+      "今天的学习已经完成，记得按时回来看抗遗忘。",
+    ];
+    const seed = String(rec.id || "report").split("").reduce((a, c) => a + c.charCodeAt(0), 0) || 1;
+    return notes.concat(seededPick(general, 2, seed)).slice(0, 3);
+  }
+  function reportText(rec) {
+    const s = recordReportStats(rec);
+    const notes = reportMessages(rec, s);
+    return [
+      "【学习报告】",
+      "学员：" + (rec.student || "学员"),
+      "词库：" + (rec.course || rec.subject || "—"),
+      "日期：" + (rec.date || "") + (rec.time ? " " + rec.time : ""),
+      "复习单词：" + s.reviewTotal + " 个",
+      "复习正确率：" + (s.reviewRate === null ? "—" : s.reviewRate + "%"),
+      "学新单词：" + s.newTotal + " 个",
+      "学新遗忘率：" + (s.forgetRate === null ? "—" : s.forgetRate + "%"),
+      "今日寄语：" + notes.join(" "),
+    ].join("\n");
+  }
+  function copyText(text) {
+    return new Promise(function (resolve, reject) {
+      const fallback = function () {
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.left = "-9999px";
+          document.body.appendChild(ta);
+          ta.select();
+          const ok = document.execCommand("copy");
+          ta.remove();
+          if (ok) resolve(); else reject(new Error("copy failed"));
+        } catch (e) { reject(e); }
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(resolve).catch(fallback);
+      } else {
+        fallback();
+      }
+    });
+  }
+  function openLearningReport(id) {
+    const rec = (S.records || []).find((r) => r.id === id);
+    if (!rec) { toast("没有找到这条销课记录"); return; }
+    const s = recordReportStats(rec);
+    const notes = reportMessages(rec, s);
+    const heroRate = s.reviewRate !== null
+      ? s.reviewRate
+      : (s.newTotal ? Math.round((s.newCorrect / s.newTotal) * 100) : 0);
+    const heroLabel = s.reviewRate !== null ? "复习正确率" : "学新正确率";
+    const reviewRateText = s.reviewRate === null ? "—" : s.reviewRate + "%";
+    const forgetRateText = s.forgetRate === null ? "—" : s.forgetRate + "%";
+    openModal(
+      '<div class="report-hero">' +
+      '<span class="report-close" data-action="close-modal">×</span>' +
+      '<div class="report-kicker">学习报告</div>' +
+      '<div class="report-hero-row">' +
+      '<div class="report-hero-main"><h2>' + esc(rec.student || "学员") + "</h2>" +
+      '<div class="report-hero-sub">' + esc(rec.course || rec.subject || "—") + "</div>" +
+      '<div class="report-hero-meta">' + esc(rec.date || "") + (rec.time ? " · " + esc(rec.time) : "") +
+      (rec.coach ? " · " + esc(rec.coach) : "") + "</div></div>" +
+      '<div class="report-score"><b>' + heroRate + "%</b><span>" + heroLabel + "</span></div>" +
+      "</div></div>" +
+      '<div class="report-grid">' +
+      '<div class="report-stat"><span>复习单词</span><b>' + s.reviewTotal + '</b><small>个</small></div>' +
+      '<div class="report-stat"><span>复习正确率</span><b>' + reviewRateText + '</b>' +
+      '<div class="report-bar"><i style="width:' + (s.reviewRate || 0) + '%"></i></div></div>' +
+      '<div class="report-stat"><span>学新单词</span><b>' + s.newTotal + '</b><small>个</small></div>' +
+      '<div class="report-stat bad"><span>学新遗忘率</span><b>' + forgetRateText + '</b>' +
+      '<div class="report-bar"><i style="width:' + (s.forgetRate || 0) + '%"></i></div></div>' +
+      "</div>" +
+      '<div class="report-course"><span>本节课词库</span><b>' + esc(rec.course || rec.subject || "—") + "</b></div>" +
+      '<div class="report-note"><div class="report-note-title">今日寄语</div>' +
+      notes.map((n) => "<p>" + esc(n) + "</p>").join("") + "</div>" +
+      '<div class="modal-foot report-foot">' +
+      '<button class="btn btn-ghost" data-action="copy-report" data-id="' + rec.id + '">复制报告</button>' +
+      '<button class="btn btn-primary" data-action="print-report" data-id="' + rec.id + '">打印 / 保存 PDF</button>' +
+      "</div>",
+      "report-modal"
+    );
+  }
+  function copyLearningReport(id) {
+    const rec = (S.records || []).find((r) => r.id === id);
+    if (!rec) return;
+    copyText(reportText(rec)).then(function () {
+      toast("学习报告已复制");
+    }).catch(function () {
+      toast("复制失败，请手动选择文字");
+    });
+  }
+  function buildReportPrintArea(rec) {
+    const s = recordReportStats(rec);
+    const notes = reportMessages(rec, s);
+    const cell = "padding:8px 12px;border-bottom:1px solid #ddd;";
+    document.getElementById("printArea").innerHTML =
+      "<h1>学习报告</h1>" +
+      '<div class="pmeta">' + esc(rec.student || "") + " · " + esc(rec.course || rec.subject || "") +
+      " · " + esc(rec.date || "") + (rec.time ? " " + esc(rec.time) : "") + "</div>" +
+      '<table style="width:100%;border-collapse:collapse;font-size:14px">' +
+      "<tr><td style=\"" + cell + "color:#555;width:34%\">复习单词</td><td style=\"" + cell + "\">" + s.reviewTotal + " 个</td></tr>" +
+      "<tr><td style=\"" + cell + "color:#555\">复习正确率</td><td style=\"" + cell + "\">" + (s.reviewRate === null ? "—" : s.reviewRate + "%") + "</td></tr>" +
+      "<tr><td style=\"" + cell + "color:#555\">学新单词</td><td style=\"" + cell + "\">" + s.newTotal + " 个</td></tr>" +
+      "<tr><td style=\"" + cell + "color:#555\">学新遗忘率</td><td style=\"" + cell + "\">" + (s.forgetRate === null ? "—" : s.forgetRate + "%") + "</td></tr>" +
+      "<tr><td style=\"" + cell + "color:#555\">本节课词库</td><td style=\"" + cell + "\">" + esc(rec.course || rec.subject || "—") + "</td></tr>" +
+      "</table>" +
+      '<div style="margin-top:16px;padding:12px 14px;border:1px solid #ddd;border-radius:8px;font-size:13px;line-height:1.8">' +
+      "<b>今日寄语</b>" + notes.map((n) => "<p style=\"margin:6px 0 0\">" + esc(n) + "</p>").join("") + "</div>" +
+      '<div class="pfoot">蜗牛智学 · 单词带背</div>';
+  }
+  function printLearningReport(rec) {
+    if (!rec) return;
+    buildReportPrintArea(rec);
+    const old = document.title;
+    document.title = [rec.student, "学习报告", rec.date].filter(Boolean).join("-");
+    try { window.print(); } catch (e) { toast("当前环境不支持打印"); }
+    document.title = old;
+  }
   function openWordExport(rec) {
     if (!rec || !rec.words || !rec.words.length) { toast("这条记录没有单词明细（旧记录不支持）"); return; }
     const opts = [["both", "中英文对照"], ["cn", "纯中文"], ["en", "纯英文"], ["ph", "纯音标"]];
@@ -3887,6 +4122,7 @@
       case "do-finish-all": closeModal(); finishAllKnown(); break;
       case "switch-course": switchCourse(); break;
       case "posttest-submit": submitPosttest(); break;
+      case "review-finish": finishReview(); break;
       /* 抗遗忘 */
       case "anti-start": startAntiReview(id); break;
       case "anti-submit": submitAnti(); break;
@@ -4017,6 +4253,9 @@
       /* 销课 */
       case "export-records": exportRecords(visibleRecords(), "销课记录-" + todayKey() + ".csv"); break;
       case "rec-words": openWordExport(S.records.find((r) => r.id === id)); break;
+      case "rec-report": openLearningReport(id); break;
+      case "copy-report": copyLearningReport(id); break;
+      case "print-report": printLearningReport(S.records.find((r) => r.id === id)); break;
       case "word-export-one": {
         const rec = S.records.find((r) => r.id === id);
         if (rec) {
