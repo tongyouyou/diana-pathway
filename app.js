@@ -1476,23 +1476,17 @@
     const ls = learnedSet(sid, courseId);
     const words = courseWords(c).filter((w) => ls[w.w]);
     if (!words.length) { toast("这个词库还没有已学单词"); return; }
-    const chunks = groupsOf(words, 5);
-    /* 复习要把前面学过的所有单词都过一遍，不是只复习第一组 */
-    const blocks = [];
-    chunks.forEach(function (_, i) {
-      blocks.push({ kind: "cut", gi: i, order: "shuffle" });
-      blocks.push({ kind: "cut", gi: i, order: "seq" });
-    });
-    blocks.push({ kind: "summary", gi: chunks.length - 1, review: true, all: true });
     lesson = {
       courseId: courseId, studentId: sid, classId: pending ? pending.classId : null, mode: "review",
-      phase: "run",
-      all: words, groups: chunks, blocks,
-      bi: 0, stage: "", list: [], idx: 0, revealed: {},
+      phase: "review",
+      all: words, reviewWords: words,
+      gridState: {}, marks: {}, gridIdx: 0,
+      groups: [], blocks: [], bi: 0,
+      stage: "", list: [], idx: 0, revealed: {},
       listenMark: {}, cutMark: {}, result: {},
-      reviewWords: words, reviewFirst: {},
     };
-    enterBlock();
+    route.name = "lesson";
+    render();
   }
 
   const blockIdx = (b) => lesson.blocks.indexOf(b);
@@ -1578,6 +1572,17 @@
       gridHtml(words, "pre")
     );
   }
+  function viewReviewGrid() {
+    const words = lesson.reviewWords || [];
+    return (
+      '<div class="section-title" style="margin-top:2px">复习检测 · 共 ' + words.length + ' 个已学单词' +
+      '<span class="link" data-action="lesson-quit">退出</span></div>' +
+      '<div class="card sticky-bar" style="display:flex;align-items:center;gap:12px">' +
+      '<div id="gridMeta" style="flex:1;font-size:13.5px">' + gridMetaHtml() + "</div>" +
+      '<div id="gridBtns" style="display:flex;gap:8px">' + gridBtnsHtml() + "</div></div>" +
+      gridHtml(words, "review")
+    );
+  }
   function markGrid(word, ok) {
     if (lesson.marks[word] === ok) delete lesson.marks[word];
     else lesson.marks[word] = ok;
@@ -1633,6 +1638,7 @@
     if (box) box.innerHTML = gridBtnsHtml();
   }
   function gridWords() {
+    if (lesson.phase === "review") return lesson.reviewWords || lesson.all || [];
     return lesson.phase === "posttest" ? (lesson.postWords || lesson.runWords || []) : (lesson.all || []);
   }
   function gridMetaHtml() {
@@ -1650,6 +1656,10 @@
       return '<button class="btn btn-ghost" data-action="anti-quit">返回</button>' +
         '<button class="btn btn-primary" data-action="anti-submit"' +
         (marked === words.length ? "" : " disabled") + ">提交</button>";
+    }
+    if (lesson.phase === "review") {
+      return '<button class="btn btn-primary" data-action="review-submit"' +
+        (marked === words.length ? "" : " disabled") + ">提交复习</button>";
     }
     if (lesson.phase === "posttest") {
       return '<button class="btn btn-primary" data-action="posttest-submit"' +
@@ -1884,9 +1894,6 @@
   }
   function markCut(word, ok) {
     lesson.cutMark[word] = ok;
-    if (lesson.mode === "review" && lesson.reviewFirst && lesson.reviewFirst[word] === undefined) {
-      lesson.reviewFirst[word] = ok;
-    }
     if (ok) playChime();
     const row = gridRowOf(word);
     if (!row) { render(); cutCheckDone(); return; }
@@ -1946,7 +1953,6 @@
   }
   /* ---- 小结 ---- */
   function viewSummary() {
-    if (lesson.mode === "review") return viewReviewSummary();
     const b = lesson.block;
     const isMixSummary = !!b.mix;
     const g = isMixSummary
@@ -1975,31 +1981,6 @@
         : (isLast ? "" : '<button class="btn btn-ghost" style="flex:1;padding:13px" data-action="summary-next">下一组</button>')) +
       '<button class="btn btn-primary" style="flex:1;padding:13px" data-action="summary-post">学后检测</button>' +
       "</div>"
-    );
-  }
-  function viewReviewSummary() {
-    const words = lesson.reviewWords || [];
-    const first = lesson.reviewFirst || {};
-    const wrong = words.filter((w) => first[w.w] === false);
-    const ok = words.length - wrong.length;
-    const pct = words.length ? Math.round((ok / words.length) * 100) : 0;
-    const rows = wrong.slice(0, 30).map(function (w) {
-      return '<div class="word-row"><span class="en">' + esc(w.w) + '</span><span class="cn">' + esc(w.m) + "</span></div>";
-    }).join("");
-    return (
-      '<div class="section-title" style="margin-top:2px">复习小结<span class="link" data-action="lesson-quit">退出</span></div>' +
-      '<div class="card review-summary-card"><div class="result-hero">' +
-      '<div class="review-finish-kicker">复习完成</div>' +
-      '<div class="review-finish-score"><b>' + pct + '</b><span>%</span><small>一次答对率</small></div></div>' +
-      '<div class="outcome" style="grid-template-columns:repeat(3,1fr)">' +
-      '<div class="o ok"><b>' + words.length + "</b><span>复习单词</span></div>" +
-      '<div class="o brand"><b>' + ok + "</b><span>一次答对</span></div>" +
-      '<div class="o bad"><b>' + wrong.length + "</b><span>需要再看</span></div></div></div>" +
-      (wrong.length
-        ? '<div class="card"><div class="section-title" style="margin-top:0">需要再看一遍（' + wrong.length + "）</div>" +
-          rows + (wrong.length > 30 ? '<div class="empty">还有 ' + (wrong.length - 30) + " 个，学习报告里会记录</div>" : "") + "</div>"
-        : '<div class="card"><div class="empty">全部一次答对，太棒了</div></div>') +
-      '<button class="btn btn-primary btn-block" style="padding:14px;margin-top:12px" data-action="review-finish">完成复习 · 查看学习报告</button>'
     );
   }
   /* ---- 学后检测 ---- */
@@ -2055,6 +2036,7 @@
   }
 
   function viewLesson() {
+    if (lesson.phase === "review") return viewReviewGrid();
     if (lesson.phase === "pretest") return viewPretest();
     if (lesson.phase === "posttest") return viewPosttest();
     if (lesson.phase === "end") return viewEnd();
@@ -2121,11 +2103,19 @@
     render();
     toast("已创建抗遗忘并下课");
   }
+  function submitReview() {
+    if (!lesson || lesson.phase !== "review") return;
+    const words = lesson.reviewWords || [];
+    if (words.some((w) => lesson.marks[w.w] === undefined)) {
+      toast("还有单词没有标记");
+      return;
+    }
+    finishReview();
+  }
   function finishReview() {
     if (!lesson) return;
     const reviewed = lesson.reviewWords || [];
-    const first = lesson.reviewFirst || {};
-    const wrong = reviewed.filter(function (w) { return first[w.w] === false; });
+    const wrong = reviewed.filter(function (w) { return lesson.marks[w.w] === false; });
     const ok = reviewed.length - wrong.length;
     const cls = S.classes.find((x) => x.id === lesson.classId);
     const stu = studentById(lesson.studentId);
@@ -4122,7 +4112,7 @@
       case "do-finish-all": closeModal(); finishAllKnown(); break;
       case "switch-course": switchCourse(); break;
       case "posttest-submit": submitPosttest(); break;
-      case "review-finish": finishReview(); break;
+      case "review-submit": submitReview(); break;
       /* 抗遗忘 */
       case "anti-start": startAntiReview(id); break;
       case "anti-submit": submitAnti(); break;
