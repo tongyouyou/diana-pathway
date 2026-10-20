@@ -2801,8 +2801,11 @@
   }
   function openCoachFormImpl(name) {
     const c = name ? (S.coaches || []).find((x) => x.name === name) : null;
-    const role = c ? (["coach", "memory", "teacher"].indexOf(c.role) >= 0 ? c.role : "admin") : "coach";
     const admin = isRealAdmin();
+    /* 管理员点「新增教练」默认就是教练账号；要开助教再手动选 */
+    const role = c
+      ? (["coach", "memory", "teacher"].indexOf(c.role) >= 0 ? c.role : "admin")
+      : (admin ? "teacher" : "coach");
     const roleOpts = admin
       ? '<option value="coach"' + (role === "coach" ? " selected" : "") + ">助教账号</option>" +
         '<option value="memory"' + (role === "memory" ? " selected" : "") + ">抗遗忘助手账号</option>" +
@@ -2826,8 +2829,9 @@
     openModal(
       '<div class="modal-head">' + (c ? "编辑教练" : "新增教练") + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body">' +
-      '<div class="field"><label>教练姓名（= 登录账号）*</label><input id="coName" value="' + esc(c ? c.name : "") + '" /></div>' +
-      '<div class="field"><label>登录密码 *</label><input id="coPass" value="' + esc(c ? c.pass : "") + '" /></div>' +
+      '<div class="field"><label>教练姓名（= 登录账号）*</label><input id="coName" maxlength="30" value="' + esc(c ? c.name : "") + '" />' +
+      '<small class="field-hint">最多 30 个字符</small></div>' +
+      '<div class="field"><label>登录密码 *</label><input id="coPass" maxlength="64" value="' + esc(c ? c.pass : "") + '" /></div>' +
       '<div class="field"><label>账号类型 *</label><select id="coRole">' +
       roleOpts +
       "</select></div>" +
@@ -2847,7 +2851,7 @@
     const coName = document.getElementById("coName");
     const coPass = document.getElementById("coPass");
     const coRole = document.getElementById("coRole");
-    const name = coName ? coName.value.trim() : "";
+    const name = coName ? coName.value.replace(/\s+/g, " ").trim() : "";
     const pass = coPass ? coPass.value.trim() : "";
     const picked = coRole ? coRole.value : "coach";
     const coPhoneEl = document.getElementById("coPhone");
@@ -2860,7 +2864,9 @@
     if (!isRealAdmin()) role = "coach";          /* 教练账号只能开通助教账号 */
     const parentEl = document.getElementById("coParent");
     if (!name) { toast("请填写教练姓名"); return; }
+    if (name.length > 30) { toast("教练姓名最多 30 个字符"); return; }
     if (!pass) { toast("请填写登录密码"); return; }
+    if (pass.length > 64) { toast("登录密码最多 64 个字符"); return; }
     S.coaches = S.coaches || [];
     if (oldName) {
       const c = S.coaches.find((x) => x.name === oldName);
@@ -3430,7 +3436,7 @@
   /* ---------------- 教练课时充值（管理员给教练充课时） ---------------- */
   function openCoachRecharge(name) {
     const c = coachByName(name);
-    if (!c) return;
+    if (!c) { toast("没有找到这个教练账号，请刷新页面后再试"); return; }
     openModal(
       '<div class="modal-head">充值课时 · ' + esc(c.name) + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body"><p style="color:var(--muted);font-size:13px;margin:0 0 12px">当前剩余 <b style="color:var(--brand)">' +
@@ -3443,13 +3449,16 @@
   }
   function saveCoachRecharge(name) {
     const c = coachByName(name);
-    const n = parseInt($("#crCount").value, 10);
-    if (!c || !n || n <= 0) { toast("请输入正确的课时数"); return; }
+    const countEl = document.getElementById("crCount");
+    const noteEl = document.getElementById("crNote");
+    if (!c || !countEl) { toast("充值窗口已关闭，请重新点充值"); return; }
+    const n = parseInt(countEl.value, 10);
+    if (!n || n <= 0) { toast("请输入正确的课时数"); return; }
     if (typeof c.totalHours !== "number") c.totalHours = coachTotalHours(c);
     c.hours = (c.hours || 0) + n;
     c.totalHours += n;
     c.rechargeLog = c.rechargeLog || [];
-    c.rechargeLog.unshift({ date: todayKey(), count: n, note: $("#crNote").value.trim() });
+    c.rechargeLog.unshift({ date: todayKey(), count: n, note: noteEl ? noteEl.value.trim() : "" });
     saveState(); closeModal(); render();
     toast("已给 " + c.name + " 充值 " + n + " 节");
   }
