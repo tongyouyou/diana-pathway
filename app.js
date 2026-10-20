@@ -1135,23 +1135,77 @@
     prevRouteForSidebar = route.name;
   }
   let voiceGB = null;
+  let wordAudio = null;
+  let speakSeq = 0;
+  let speakFallbackTimer = null;
   function pickVoice() {
     try {
       const vs = window.speechSynthesis.getVoices() || [];
       voiceGB = vs.find((v) => /en[-_]GB/i.test(v.lang)) || vs.find((v) => /english \(united kingdom\)|kate|daniel|serena|arthur/i.test(v.name)) || null;
     } catch (e) { voiceGB = null; }
   }
-  function speak(text) {
+  /* 浏览器没有语音合成时，用在线词典发音兜底 */
+  function playWordAudio(text) {
+    const word = String(text || "").trim();
+    if (!word) return;
     try {
-      if (!("speechSynthesis" in window)) { toast("当前环境不支持发音"); return; }
+      if (typeof Audio === "undefined") {
+        toast("当前浏览器无法播放发音，请换用 Chrome 或 Safari");
+        return;
+      }
+      if (!wordAudio) {
+        wordAudio = new Audio();
+        wordAudio.preload = "auto";
+        wordAudio.playsInline = true;
+      }
+      wordAudio.pause();
+      wordAudio.currentTime = 0;
+      wordAudio.src = "https://dict.youdao.com/dictvoice?audio=" + encodeURIComponent(word) + "&type=1";
+      const p = wordAudio.play();
+      if (p && p.catch) {
+        p.catch(function () { toast("发音加载失败，请检查网络后重试"); });
+      }
+    } catch (e) {
+      toast("当前浏览器无法播放发音，请换用 Chrome 或 Safari");
+    }
+  }
+  function speak(text) {
+    const word = String(text || "").trim();
+    if (!word) return;
+    const seq = ++speakSeq;
+    if (speakFallbackTimer) { clearTimeout(speakFallbackTimer); speakFallbackTimer = null; }
+    try {
+      if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+        playWordAudio(word);
+        return;
+      }
       if (!voiceGB) pickVoice();
-      const u = new SpeechSynthesisUtterance(text);
+      const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+      if (!voices || !voices.length) {
+        /* 有些平板虽然“有”语音合成，但一个可用语音都没有 */
+        playWordAudio(word);
+        return;
+      }
+      let started = false;
+      const u = new SpeechSynthesisUtterance(word);
       u.lang = "en-GB";
       u.rate = 0.9;
       if (voiceGB) u.voice = voiceGB;
+      u.onstart = function () { started = true; };
+      u.onerror = function () {
+        if (seq === speakSeq && !started) playWordAudio(word);
+      };
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
-    } catch (e) { /* ignore */ }
+      /* 个别浏览器 speechSynthesis 存在但不出声：600ms 内没开始就换词典音频 */
+      speakFallbackTimer = setTimeout(function () {
+        if (seq !== speakSeq || started) return;
+        try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+        playWordAudio(word);
+      }, 600);
+    } catch (e) {
+      playWordAudio(word);
+    }
   }
   /* 剪纸盒答对音效：用浏览器自带音频合成，不需要额外的音频文件 */
   let chimeCtx = null;
