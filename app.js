@@ -502,6 +502,7 @@
   let weekOffset = 0;
   let lesson = null;
   let pending = null;            // {studentId, classId}
+  let pendingReviewSummary = null;
   let currentCourseId = null;
   let currentCourseStudentId = null;
   let currentStudentId = null;
@@ -593,6 +594,19 @@
     return set;
   }
   const learnedCount = (studentId, courseId) => Object.keys(learnedSet(studentId, courseId)).length;
+  function knownSet(studentId, courseId) {
+    const set = {};
+    (courseProgress(studentId, courseId).known || []).forEach(function (w) { set[w] = 1; });
+    return set;
+  }
+  /* 复习只看“学过但还没有打勾掌握”的词；已经掌握的单词直接跳过。 */
+  function reviewableCourseWords(studentId, courseId) {
+    const c = courseById(courseId);
+    if (!c) return [];
+    const learned = learnedSet(studentId, courseId);
+    const known = knownSet(studentId, courseId);
+    return courseWords(c).filter(function (w) { return learned[w.w] && !known[w.w]; });
+  }
   /* 词库分类：建库时填过就用填的，没填过就按名字猜一个（方便搜索） */
   function courseMeta(c) {
     if (!c) return { book: "其他", stage: "其他", kind: "其他" };
@@ -928,7 +942,15 @@
   }
   function visibleReviews() {
     const all = (S.reviews || []).filter((r) => (S.records || []).some((x) => x.id === r.recordId));
-    if (isRealAdmin() || isMemoryAssistant()) return all;
+    if (isRealAdmin()) return all;
+    if (isMemoryAssistant()) {
+      const c = currentCoach();
+      const ids = new Set(c && Array.isArray(c.antiStudentIds) ? c.antiStudentIds : []);
+      const names = new Set((S.students || [])
+        .filter((s) => ids.has(s.id))
+        .map((s) => s.name));
+      return all.filter((r) => ids.has(r.studentId) || names.has(r.student));
+    }
     const me = meName();
     return all.filter((r) => (r.coach || "Diana") === me || inMyScope(r.studentId));
   }
@@ -1452,7 +1474,8 @@
       const rest = courseWords(co).filter((w) => !done[w.w]);
       const preview = rest.slice(0, 40).map(function (w) {
         return '<div class="word-row"><span class="en">' + esc(w.w) + '</span><span class="cn">' +
-          esc((w.ph ? w.ph + " " : "") + (w.m || "")) + "</span></div>";
+          (w.ph ? '<span class="ph">' + esc(w.ph) + "</span>" : "") +
+          esc(w.m || "") + "</span></div>";
       }).join("");
       return '<div class="section-title">' + esc(co.name) + " · 还剩 " + rest.length + " 词</div>" +
         '<div class="card">' + (rest.length
@@ -1516,6 +1539,7 @@
     if (!c || !stu) return '<div class="card"><div class="empty">数据缺失，请返回</div></div>';
     const learned = learnedCount(stu.id, c.id);
     const remain = courseSize(c) - learned;
+    const reviewable = reviewableCourseWords(stu.id, c.id);
     const learnedWords = courseWords(c).filter((w) => learnedSet(stu.id, c.id)[w.w]);
     const rows = learnedWords.length
       ? learnedWords.map((w) => '<div class="word-row"><span class="en">' + esc(w.w) + "</span></div>").join("")
@@ -1529,7 +1553,7 @@
       '<div class="o bad"><b>' + remain + "</b><span>剩余</span></div></div>" +
       '<div style="display:flex;gap:10px;margin-top:14px">' +
       '<button class="btn btn-primary" style="flex:1;padding:14px;font-size:15px" data-action="start-new">学新</button>' +
-      '<button class="btn btn-ghost" style="flex:1;padding:14px;font-size:15px" data-action="start-review-course"' + (learned ? "" : " disabled") + ">复习</button>" +
+      '<button class="btn btn-ghost" style="flex:1;padding:14px;font-size:15px" data-action="start-review-course"' + (reviewable.length ? "" : " disabled") + ">复习</button>" +
       "</div></div>" +
       '<div class="section-title">已掌握单词（' + learned + "）</div>" +
       '<div class="card">' + rows + "</div>"
@@ -1544,13 +1568,22 @@
     const c = courseById(courseId);
     const stu = courseStudent();
     const sid = studentId || (stu ? stu.id : null);
+    const classKey = classId || (pending ? pending.classId : null);
+    const priorReview = pendingReviewSummary &&
+      pendingReviewSummary.courseId === courseId &&
+      pendingReviewSummary.studentId === sid &&
+      pendingReviewSummary.classId === classKey
+      ? pendingReviewSummary
+      : null;
+    pendingReviewSummary = null;
     const done = learnedSet(sid, courseId);
     const pool = courseWords(c).filter((w) => !done[w.w]);
     if (!pool.length) { toast("这个词库的单词已经全部学完啦"); return; }
+    logBegin(courseId, sid, classKey);
     lesson = {
       courseId: courseId,
       studentId: sid,
-      classId: classId || (pending ? pending.classId : null),
+      classId: classKey,
       mode: "new",
       phase: "pretest",
       all: pool,
@@ -1558,6 +1591,7 @@
       groups: [], blocks: [], bi: 0,
       stage: "", list: [], idx: 0, revealed: {},
       listenMark: {}, cutMark: {}, result: {},
+      reviewSummary: priorReview,
     };
     route.name = "lesson";
     render();
@@ -1566,9 +1600,9 @@
     const c = courseById(courseId);
     const cs = courseStudent();
     const sid = studentId || (cs ? cs.id : null);
-    const ls = learnedSet(sid, courseId);
-    const words = courseWords(c).filter((w) => ls[w.w]);
-    if (!words.length) { toast("这个词库还没有已学单词"); return; }
+    const words = reviewableCourseWords(sid, courseId);
+    if (!words.length) { toast("没有需要复习的单词，打勾掌握的词会直接跳过"); return; }
+    pendingReviewSummary = null;
     lesson = {
       courseId: courseId, studentId: sid, classId: pending ? pending.classId : null, mode: "review",
       phase: "review",
@@ -1637,19 +1671,21 @@
   /* ---- 学前/学后检测：只显示英文，点词=朗读/看中文/还原，右侧对·叉 ---- */
   function gridHtml(words) {
     const marks = lesson.marks;
-    return '<div class="pre-list">' + words.map(function (w) {
-      const st = lesson.gridState[w.w] || 0;
-      const mk = marks[w.w];
+    return '<div class="pre-list">' + words.map(function (w, idx) {
+      const key = String(idx);
+      const st = lesson.gridState[key] || 0;
+      const mk = marks[key];
       const cls = mk === true ? " ok" : mk === false ? " bad" : "";
       return (
-        '<div class="pre-item' + cls + '">' +
-        '<div class="pw" data-action="grid-word" data-w="' + esc(w.w) + '">' +
-        '<b>' + esc(w.w) + "</b>" +
+        '<div class="pre-item grid-row' + cls + '">' +
+        '<div class="pw" data-action="grid-word" data-k="' + key + '" data-w="' + esc(w.w) + '">' +
+        '<span class="pre-word"><b>' + esc(w.w) + "</b>" +
+        (w.ph ? '<span class="pre-ph">' + esc(w.ph) + "</span>" : "") + "</span>" +
         (st >= 2 ? '<small>' + esc(w.m) + "</small>" : "") +
         "</div>" +
         '<div class="pm">' +
-        '<button class="' + (mk === true ? "on" : "") + '" data-action="grid-ok" data-w="' + esc(w.w) + '" title="对" aria-label="对">' + SVG_CHECK + "</button>" +
-        '<button class="' + (mk === false ? "on" : "") + '" data-action="grid-no" data-w="' + esc(w.w) + '" title="叉" aria-label="叉">' + SVG_CROSS + "</button>" +
+        '<button class="' + (mk === true ? "on" : "") + '" data-action="grid-ok" data-k="' + key + '" data-w="' + esc(w.w) + '" title="对" aria-label="对">' + SVG_CHECK + "</button>" +
+        '<button class="' + (mk === false ? "on" : "") + '" data-action="grid-no" data-k="' + key + '" data-w="' + esc(w.w) + '" title="叉" aria-label="叉">' + SVG_CROSS + "</button>" +
         "</div></div>"
       );
     }).join("") + "</div>";
@@ -1668,7 +1704,7 @@
   function viewReviewGrid() {
     const words = lesson.reviewWords || [];
     return (
-      '<div class="section-title" style="margin-top:2px">复习检测 · 共 ' + words.length + ' 个已学单词' +
+      '<div class="section-title" style="margin-top:2px">复习检测 · 共 ' + words.length + ' 个已学单词 · 标记任意数量即可提交' +
       '<span class="link" data-action="lesson-quit">退出</span></div>' +
       '<div class="card sticky-bar" style="display:flex;align-items:center;gap:12px">' +
       '<div id="gridMeta" style="flex:1;font-size:13.5px">' + gridMetaHtml() + "</div>" +
@@ -1676,12 +1712,12 @@
       gridHtml(words, "review")
     );
   }
-  function markGrid(word, ok) {
-    if (lesson.marks[word] === ok) delete lesson.marks[word];
-    else lesson.marks[word] = ok;
-    const row = gridRowOf(word);
+  function markGrid(key, ok, fromEl) {
+    if (lesson.marks[key] === ok) delete lesson.marks[key];
+    else lesson.marks[key] = ok;
+    const row = (fromEl && fromEl.closest ? fromEl.closest(".pre-item") : null) || gridRowOf(key);
     if (!row) { render(); return; }
-    const val = lesson.marks[word];
+    const val = lesson.marks[key];
     row.classList.toggle("ok", val === true);
     row.classList.toggle("bad", val === false);
     const okBtn = row.querySelector('[data-action="grid-ok"]');
@@ -1695,19 +1731,19 @@
     const words = lesson.all || [];
     if (!words.length) return;
     const target = Math.min(30, words.length);
-    let count = words.filter(function (w) { return lesson.marks[w.w] === false; }).length;
-    words.forEach(function (w) {
+    let count = words.filter(function (w, i) { return lesson.marks[String(i)] === false; }).length;
+    words.forEach(function (w, i) {
       if (count >= target) return;
-      if (lesson.marks[w.w] === undefined) { lesson.marks[w.w] = false; count++; }
+      if (lesson.marks[String(i)] === undefined) { lesson.marks[String(i)] = false; count++; }
     });
     for (let i = words.length - 1; i >= 0 && count < target; i--) {
       const w = words[i];
-      if (lesson.marks[w.w] === true) { lesson.marks[w.w] = false; count++; }
+      if (lesson.marks[String(i)] === true) { lesson.marks[String(i)] = false; count++; }
     }
-    words.forEach(function (w) {
-      const row = gridRowOf(w.w);
+    words.forEach(function (w, i) {
+      const row = gridRowOf(String(i));
       if (!row) return;
-      const val = lesson.marks[w.w];
+      const val = lesson.marks[String(i)];
       row.classList.toggle("ok", val === true);
       row.classList.toggle("bad", val === false);
       const okBtn = row.querySelector('[data-action="grid-ok"]');
@@ -1718,10 +1754,10 @@
     refreshGridMeta();
     toast("已自动选择 " + count + " 个单词");
   }
-  function gridRowOf(word) {
+  function gridRowOf(key) {
     return $$(".pre-item").find(function (r) {
       const p = r.querySelector(".pw");
-      return p && p.dataset.w === word;
+      return p && (p.dataset.k === String(key) || (!p.dataset.k && p.dataset.w === key));
     });
   }
   function refreshGridMeta() {
@@ -1736,15 +1772,15 @@
   }
   function gridMetaHtml() {
     const words = gridWords();
-    const marked = words.filter((w) => lesson.marks[w.w] !== undefined).length;
-    const wrong = words.filter((w) => lesson.marks[w.w] === false).length;
+    const marked = words.filter((w, i) => lesson.marks[String(i)] !== undefined).length;
+    const wrong = words.filter((w, i) => lesson.marks[String(i)] === false).length;
     return '已标记 <b style="color:var(--brand)">' + marked + "</b> / " + words.length +
       ' &nbsp;·&nbsp; 打叉 <b style="color:var(--bad)">' + wrong + "</b> 个";
   }
   function gridBtnsHtml() {
     const words = gridWords();
-    const marked = words.filter((w) => lesson.marks[w.w] !== undefined).length;
-    const wrong = words.filter((w) => lesson.marks[w.w] === false).length;
+    const marked = words.filter((w, i) => lesson.marks[String(i)] !== undefined).length;
+    const wrong = words.filter((w, i) => lesson.marks[String(i)] === false).length;
     if (lesson.phase === "anti") {
       return '<button class="btn btn-ghost" data-action="anti-quit">返回</button>' +
         '<button class="btn btn-primary" data-action="anti-submit"' +
@@ -1752,7 +1788,7 @@
     }
     if (lesson.phase === "review") {
       return '<button class="btn btn-primary" data-action="review-submit"' +
-        (marked === words.length ? "" : " disabled") + ">提交复习</button>";
+        (marked ? "" : " disabled") + ">提交复习</button>";
     }
     if (lesson.phase === "posttest") {
       return '<button class="btn btn-primary" data-action="posttest-submit"' +
@@ -1768,15 +1804,15 @@
     return autoBtn +
       '<button class="btn btn-primary" data-action="pretest-submit"' + (wrong ? "" : " disabled") + ">提交，开始学习</button>";
   }
-  function cycleGridWord(word) {
-    lesson.gridState[word] = ((lesson.gridState[word] || 0) + 1) % 3;
-    const item = (lesson.all || []).find((x) => x.w === word);
-    if (lesson.gridState[word] === 1 && item) speak(item.w);
-    const row = gridRowOf(word);
+  function cycleGridWord(key) {
+    lesson.gridState[key] = ((lesson.gridState[key] || 0) + 1) % 3;
+    const item = gridWords()[Number(key)];
+    if (lesson.gridState[key] === 1 && item) speak(item.w);
+    const row = gridRowOf(key);
     if (!row) { render(); return; }
     const pw = row.querySelector(".pw");
     const small = pw.querySelector("small");
-    if (lesson.gridState[word] >= 2) {
+    if (lesson.gridState[key] >= 2) {
       if (small) small.textContent = item ? item.m : "";
       else if (item) pw.insertAdjacentHTML("beforeend", "<small>" + esc(item.m) + "</small>");
     } else if (small) {
@@ -1787,24 +1823,34 @@
     return $$(sel).find((el) => el.dataset.w === word);
   }
   function cycleStudyWord(word) {
-    lesson.activeWord = word;
-    lesson.studyState[word] = ((lesson.studyState[word] || 0) + 1) % 3;
-    const st = lesson.studyState[word];
     const item = lesson.list.find((x) => x.w === word);
-    if (st === 1 && item) speak(item.w);
-    $$(".study-tile").forEach((el) => el.classList.toggle("is-active", el.dataset.w === word));
-    const tile = findByW(".study-tile", word);
-    if (!tile) { render(); return; }
-    tile.classList.toggle("on", st >= 2);
-    const side = tile.querySelector(".st-side");
-    if (side) {
-      side.innerHTML = st >= 2
-        ? '<div class="st-cn">' + esc(item ? item.m : "") + "</div>"
-        : "";
+    const same = lesson.activeWord === word;
+    if (!same) {
+      /* 点另一个单词时，全部单词回到初始状态，只保留当前单词 */
+      lesson.studyState = {};
+      lesson.activeWord = word;
+      lesson.studyState[word] = 1;
+    } else {
+      lesson.studyState[word] = ((lesson.studyState[word] || 0) + 1) % 3;
     }
+    const st = lesson.studyState[word] || 0;
+    lesson.activeWord = st > 0 ? word : null;
+    if (st === 1 && item) speak(item.w);
+    $$(".study-tile").forEach(function (el) {
+      const active = st > 0 && el.dataset.w === word;
+      const thisState = active ? st : 0;
+      el.classList.toggle("is-active", active);
+      el.classList.toggle("on", thisState >= 2);
+      const side = el.querySelector(".st-side");
+      if (side) {
+        side.innerHTML = thisState >= 2
+          ? '<div class="st-cn">' + esc(item ? item.m : "") + "</div>"
+          : "";
+      }
+    });
   }
   function submitPretest() {
-    const wrongWords = lesson.all.filter((w) => lesson.marks[w.w] === false).slice(0, 30);
+    const wrongWords = lesson.all.filter((w, i) => lesson.marks[String(i)] === false).slice(0, 30);
     if (!wrongWords.length) { toast("没有打叉的单词"); return; }
     saveKnownMarks();
     lesson.groups = groupsOf(wrongWords, 5);
@@ -1821,7 +1867,7 @@
     const prog = courseProgress(lesson.studentId, lesson.courseId);
     const kset = {};
     (prog.known || []).forEach((w) => { kset[w] = 1; });
-    (lesson.all || []).forEach((w) => { if (lesson.marks[w.w] === true) kset[w.w] = 1; });
+    (lesson.all || []).forEach((w, i) => { if (lesson.marks[String(i)] === true) kset[w.w] = 1; });
     prog.known = Object.keys(kset);
     S.progress[progKey(lesson.studentId, lesson.courseId)] = prog;
     saveState();
@@ -1852,14 +1898,24 @@
     const type = typeByKey(cls ? cls.type : "60");
     const words = lesson.all || [];
     if (lesson.classId) {
+      logRound(words, [], lesson.reviewSummary);
+      const agg = logAggregate(lesson.classId);
+      const recWords = agg ? agg.words : words;
+      const recCorrect = agg ? agg.correct : recWords.length;
+      const recForgot = agg ? agg.forgot : 0;
+      const recCourseIds = agg && agg.courseIds && agg.courseIds.length ? agg.courseIds : [lesson.courseId];
       const rec = {
         id: uid(), date: todayKey(), studentId: lesson.studentId,
-        student: stu ? stu.name : "学员", course: courseName(lesson.courseId), courseId: lesson.courseId,
+        student: stu ? stu.name : "学员",
+        course: (agg && agg.course) || courseName(lesson.courseId),
+        courseId: recCourseIds[0], courseIds: recCourseIds,
         type: type.label, subject: "单词带背",
         coach: (cls && cls.coach) || (S.user && S.user.name) || "Diana",
         time: (cls && cls.time) || "",
-        correct: words.length, total: words.length,
-        words: words.map((w) => ({ w: w.w, ph: w.ph, m: w.m })),
+        correct: recCorrect, total: recWords.length,
+        words: recWords.map((w) => ({ w: w.w, ph: w.ph, m: w.m })),
+        newCount: recWords.length, newTotal: recWords.length,
+        newCorrect: recCorrect, newForgot: recForgot,
         minutes: type.min,
       };
       S.records.unshift(rec);
@@ -1867,6 +1923,7 @@
       createAntiReviews(rec);
       saveState();
     }
+    logClear();
     lesson = null;
     route.name = "schedule";
     render();
@@ -1880,7 +1937,8 @@
       return (
         '<div class="study-tile' + (st >= 2 ? " on" : "") + (lesson.activeWord === w.w ? " is-active" : "") +
         '" data-action="study-word" data-w="' + esc(w.w) + '">' +
-        '<div class="st-word"><span class="st-en">' + esc(w.w) + '</span><span class="st-ph">' + esc(w.ph) + "</span></div>" +
+        '<div class="st-main"><div class="st-en">' + esc(w.w) + "</div>" +
+        (w.ph ? '<div class="st-ph">' + esc(w.ph) + "</div>" : "") + "</div>" +
         '<div class="st-side">' +
         (st >= 2 ? '<div class="st-cn">' + esc(w.m) + "</div>" : "") +
         "</div>" +
@@ -2089,7 +2147,7 @@
   }
   function submitPosttest() {
     const words = lesson.postWords || lesson.runWords || [];
-    const wrong = words.filter((w) => lesson.marks[w.w] === false);
+    const wrong = words.filter((w, i) => lesson.marks[String(i)] === false);
     lesson.postWrong = wrong;
     lesson.phase = "end";
     render();
@@ -2141,10 +2199,58 @@
   }
 
   /* ---- 结算 ---- */
-  function persistRound() {
+  /* 同一次上课（同一个 classId）可能分多轮学习：26 个 → 继续学习 → 5 个。
+     学习报告/销课记录/抗遗忘都要算「这节课学过的全部单词」，所以这里按轮累计。 */
+  let lessonLog = null;
+  function logBegin(courseId, studentId, classId) {
+    if (!classId) { lessonLog = null; return; }
+    if (lessonLog && lessonLog.classId === classId && lessonLog.studentId === studentId) {
+      if (!lessonLog.courseIds) lessonLog.courseIds = lessonLog.courseId ? [lessonLog.courseId] : [];
+      if (lessonLog.courseIds.indexOf(courseId) < 0) lessonLog.courseIds.push(courseId);
+      return;
+    }
+    lessonLog = {
+      classId: classId,
+      studentId: studentId,
+      courseId: courseId,
+      courseIds: courseId ? [courseId] : [],
+      words: {}, order: [], correct: 0, forgot: 0, review: null,
+    };
+  }
+  function logRound(words, wrong, review) {
+    if (!lessonLog) return;
+    const bad = {};
+    (wrong || []).forEach(function (w) { if (w && w.w) bad[w.w] = 1; });
+    (words || []).forEach(function (w) {
+      if (!w || !w.w) return;
+      if (!lessonLog.words[w.w]) {
+        lessonLog.words[w.w] = { w: w.w, ph: w.ph, m: w.m };
+        lessonLog.order.push(w.w);
+      }
+    });
+    lessonLog.correct += (words || []).length - (wrong || []).length;
+    lessonLog.forgot += (wrong || []).length;
+    if (review) lessonLog.review = review;
+  }
+  function logAggregate(classId) {
+    if (!lessonLog || !classId || lessonLog.classId !== classId) return null;
+    const courseIds = (lessonLog.courseIds || []).filter(Boolean);
+    const names = courseIds.map(courseName).filter(Boolean);
+    return {
+      words: lessonLog.order.map(function (k) { return lessonLog.words[k]; }),
+      correct: lessonLog.correct,
+      forgot: lessonLog.forgot,
+      review: lessonLog.review,
+      courseId: courseIds[0] || lessonLog.courseId,
+      courseIds: courseIds,
+      course: names.join(" + "),
+    };
+  }
+  function logClear() { lessonLog = null; }
+  function persistRound(wordsOverride, wrongOverride) {
     if (lesson.practice) return;
-    const words = lesson.postWords || lesson.runWords || [];
-    const wrong = lesson.postWrong || [];
+    const words = wordsOverride || lesson.postWords || lesson.runWords || [];
+    const wrong = wrongOverride || lesson.postWrong || [];
     const prog = courseProgress(lesson.studentId, lesson.courseId);
     const set = {};
     (prog.learned || []).forEach((w) => { set[w] = 1; });
@@ -2155,6 +2261,7 @@
     wrong.forEach((w) => { wset[w.w] = 1; });
     prog.wrong = Object.keys(wset);
     S.progress[progKey(lesson.studentId, lesson.courseId)] = prog;
+    logRound(words, wrong, lesson.reviewSummary);
     saveState();
   }
   function newPoolWords(studentId, courseId) {
@@ -2168,28 +2275,40 @@
     wrong.forEach(function (w) {
       if (!S.wrong.some((x) => x.w === w.w)) S.wrong.push({ w: w.w, ph: w.ph, m: w.m, ex: w.ex });
     });
+    const review = lesson.reviewSummary || {};
     const stu = studentById(lesson.studentId);
     const cls = S.classes.find((x) => x.id === lesson.classId);
     const type = typeByKey(cls ? cls.type : "60");
     persistRound();
     if (lesson.classId) {
+      const agg = logAggregate(lesson.classId);
+      const recWords = agg ? agg.words : words;
+      const recCorrect = agg ? agg.correct : words.length - wrong.length;
+      const recForgot = agg ? agg.forgot : wrong.length;
+      const aggReview = (agg && agg.review) || review;
+      const recCourseIds = agg && agg.courseIds && agg.courseIds.length ? agg.courseIds : [lesson.courseId];
       const rec = {
         id: uid(), date: todayKey(), studentId: lesson.studentId,
-        student: stu ? stu.name : "学员", course: courseName(lesson.courseId), courseId: lesson.courseId,
+        student: stu ? stu.name : "学员",
+        course: (agg && agg.course) || courseName(lesson.courseId),
+        courseId: recCourseIds[0], courseIds: recCourseIds,
         type: type.label, subject: "单词带背",
         coach: (cls && cls.coach) || (S.user && S.user.name) || "Diana",
         time: (cls && cls.time) || "",
-        correct: words.length - wrong.length, total: words.length,
-        words: words.map((w) => ({ w: w.w, ph: w.ph, m: w.m })),
-        newCount: words.length, newTotal: words.length,
-        newCorrect: words.length - wrong.length, newForgot: wrong.length,
-        reviewCount: 0, reviewTotal: 0, reviewCorrect: 0,
+        correct: recCorrect, total: recWords.length,
+        words: recWords.map((w) => ({ w: w.w, ph: w.ph, m: w.m })),
+        newCount: recWords.length, newTotal: recWords.length,
+        newCorrect: recCorrect, newForgot: recForgot,
+        reviewCount: Number(aggReview.reviewed) || 0,
+        reviewTotal: Number(aggReview.reviewed) || 0,
+        reviewCorrect: Number(aggReview.correct) || 0,
         minutes: type.min,
       };
       S.records.unshift(rec);
       if (cls) cls.status = "已完成";
       createAntiReviews(rec);
     }
+    logClear();
     saveState();
     lesson = null;
     route.name = "schedule";
@@ -2198,52 +2317,55 @@
   }
   function submitReview() {
     if (!lesson || lesson.phase !== "review") return;
-    const words = lesson.reviewWords || [];
-    if (words.some((w) => lesson.marks[w.w] === undefined)) {
-      toast("还有单词没有标记");
-      return;
-    }
-    finishReview();
+    const reviewed = (lesson.reviewWords || []).map(function (w, i) {
+      return { w: w, ok: lesson.marks[String(i)] };
+    }).filter(function (x) { return x.ok !== undefined; });
+    if (!reviewed.length) { toast("请至少复习并标记 1 个单词"); return; }
+    finishReview(reviewed);
   }
-  function finishReview() {
+  function finishReview(reviewed) {
     if (!lesson) return;
-    const reviewed = lesson.reviewWords || [];
-    const wrong = reviewed.filter(function (w) { return lesson.marks[w.w] === false; });
-    const ok = reviewed.length - wrong.length;
-    const cls = S.classes.find((x) => x.id === lesson.classId);
-    const stu = studentById(lesson.studentId);
-    let rec = null;
-    if (cls) {
-      const type = typeByKey(cls.type);
-      wrong.forEach(function (w) {
-        if (!S.wrong.some((x) => x.w === w.w)) S.wrong.push({ w: w.w, ph: w.ph, m: w.m, ex: w.ex });
-      });
-      rec = {
-        id: uid(), date: todayKey(), studentId: lesson.studentId,
-        student: stu ? stu.name : "学员", course: courseName(lesson.courseId), courseId: lesson.courseId,
-        type: type.label, subject: "单词复习",
-        coach: cls.coach || (S.user && S.user.name) || "Diana",
-        time: cls.time || "",
-        correct: ok, total: reviewed.length,
-        words: wrong.map((w) => ({ w: w.w, ph: w.ph, m: w.m })),
-        reviewCount: reviewed.length, reviewTotal: reviewed.length, reviewCorrect: ok,
-        newCount: 0, newTotal: 0, newCorrect: 0, newForgot: 0,
-        minutes: type.min,
+    const reviewedWords = reviewed.map(function (x) { return x.w; });
+    const wrong = reviewed.filter(function (x) { return x.ok === false; }).map(function (x) { return x.w; });
+    const ok = reviewedWords.length - wrong.length;
+    wrong.forEach(function (w) {
+      if (!S.wrong.some((x) => x.w === w.w)) S.wrong.push({ w: w.w, ph: w.ph, m: w.m, ex: w.ex });
+    });
+    const prog = courseProgress(lesson.studentId, lesson.courseId);
+    const known = {};
+    const wrongSet = {};
+    (prog.known || []).forEach(function (w) { known[w] = 1; });
+    (prog.wrong || []).forEach(function (w) { wrongSet[w] = 1; });
+    reviewed.forEach(function (item) {
+      const word = item.w && item.w.w;
+      if (!word) return;
+      if (item.ok === true) {
+        known[word] = 1;
+        delete wrongSet[word];
+      } else if (item.ok === false) {
+        wrongSet[word] = 1;
+        delete known[word];
+      }
+    });
+    prog.known = Object.keys(known);
+    prog.wrong = Object.keys(wrongSet);
+    S.progress[progKey(lesson.studentId, lesson.courseId)] = prog;
+    if (newPoolWords(lesson.studentId, lesson.courseId).length) {
+      pendingReviewSummary = {
+        courseId: lesson.courseId,
+        studentId: lesson.studentId,
+        classId: lesson.classId,
+        reviewed: reviewedWords.length,
+        correct: ok,
       };
-      S.records.unshift(rec);
-      cls.status = "已完成";
-      saveState();
+    } else {
+      pendingReviewSummary = null;
     }
     lesson = null;
-    pending = null;
-    route.name = rec ? "schedule" : (currentCourseId ? "course" : "schedule");
+    saveState();
+    route.name = currentCourseId ? "course" : "schedule";
     render();
-    if (rec) {
-      toast("复习完成，已生成学习报告");
-      openLearningReport(rec.id);
-    } else {
-      toast("复习完成");
-    }
+    toast("已复习 " + reviewedWords.length + " 个，可以继续学新");
   }
 
   /* ---------------- 学员 ---------------- */
@@ -2593,7 +2715,8 @@
     return list.map(function (x) {
       const w = x.w;
       return '<div class="word-row cw-row"><span class="en">' + esc(w.w) + '</span><span class="cn">' +
-        esc((w.ph ? w.ph + "  " : "") + (w.m || "")) + "</span>" +
+        (w.ph ? '<span class="ph">' + esc(w.ph) + "</span>" : "") +
+        esc(w.m || "") + "</span>" +
         (admin
           ? '<span class="cw-ops"><button class="btn" data-action="cw-edit" data-idx="' + x.i + '">改</button>' +
             '<button class="btn btn-ghost" data-action="cw-del" data-idx="' + x.i + '">删</button></span>'
@@ -2885,14 +3008,21 @@
           );
         }).join("")
       : '<tr><td colspan="8"><div class="empty">还没有教练</div></td></tr>';
+    const addAction = isRealAdmin()
+      ? '<button class="btn btn-primary" data-action="coach-new">＋ 新增教练</button>'
+      : isTeacher()
+        ? '<button class="btn btn-primary" data-action="coach-new">＋ 新增助教</button>'
+        : '';
+    const helpText = isRealAdmin()
+      ? "教练名同时作为<b>登录账号</b>，密码用于右上角「登录」；新增后即可在排课时选择该教练。"
+      : isTeacher()
+        ? "这里只显示你自己和你名下的助教。新增助教后需要管理员审核，通过后才能启用。"
+        : "这里只显示你自己的账号；账号类型由管理员设置，不能修改。";
     return (
-      pageHead("教练管理",
-        '<button class="btn btn-primary" data-action="coach-new">＋ 新增教练</button>') +
+      pageHead("教练管理", addAction) +
       '<div class="section-title" style="margin-top:0">教练 · 共 ' + list.length + " 人</div>" +
       '<div class="card" style="margin-bottom:12px"><div style="font-size:13px;color:var(--muted);line-height:1.8">' +
-      (isRealAdmin()
-        ? "教练名同时作为<b>登录账号</b>，密码用于右上角「登录」；新增后即可在排课时选择该教练。"
-        : "这里只显示你自己和你名下的助教。你可以给自己开通<b>助教账号</b>。") +
+      helpText +
       "</div></div>" +
       '<div class="data-scroll"><table class="data-table">' +
       '<thead><tr><th>序号</th><th><span class="co-name"><span class="beta-slot"></span>姓名</span></th>' +
@@ -2968,7 +3098,9 @@
         '<option value="memory"' + (role === "memory" ? " selected" : "") + ">抗遗忘助手账号</option>" +
         '<option value="teacher"' + (role === "teacher" ? " selected" : "") + ">教练账号</option>" +
         '<option value="admin"' + (role === "admin" ? " selected" : "") + ">管理员账号</option>"
-      : '<option value="coach" selected>助教账号</option>';
+      : '<option value="' + esc(role) + '" selected>' +
+        (role === "teacher" ? "教练账号" : role === "coach" ? "助教账号" : role === "memory" ? "抗遗忘助手账号" : "管理员账号") +
+        "</option>";
     const parentField = admin
       ? '<div class="field"><label>归属教练（仅助教账号需要）</label><select id="coParent">' +
         '<option value="">机构直属</option>' +
@@ -2983,15 +3115,18 @@
         '<input type="checkbox" id="coBeta"' + (c && c.beta ? " checked" : "") + " />" +
         "<span>标记为内测教练账号</span></label></div>"
       : "";
+    const formTitle = c
+      ? (admin ? "编辑教练" : "编辑账号")
+      : (admin ? "新增教练" : "新增助教");
     openModal(
-      '<div class="modal-head">' + (c ? "编辑教练" : "新增教练") + ' <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-head">' + formTitle + ' <span class="x" data-action="close-modal">×</span></div>' +
       '<div class="modal-body">' +
       '<div class="field"><label>教练姓名（= 登录账号）*</label><input id="coName" maxlength="30" value="' + esc(c ? c.name : "") + '" />' +
       '<small class="field-hint">最多 30 个字符</small></div>' +
       '<div class="field"><label>登录密码 *</label><input id="coPass" maxlength="64" value="' + esc(c ? c.pass : "") + '" /></div>' +
-      '<div class="field"><label>账号类型 *</label><select id="coRole">' +
+      '<div class="field"><label>账号类型 *</label><select id="coRole"' + (admin ? "" : " disabled") + ">" +
       roleOpts +
-      "</select></div>" +
+      "</select>" + (admin ? "" : '<small class="field-hint">由管理员设置，不能修改</small>') + "</div>" +
       parentField +
       betaField +
       "</div>" +
@@ -3156,46 +3291,85 @@
     const n = rec ? (rec.words || []).length : 0;
     const today = todayKey();
     const done = r.status === "已完成";
-    const overdue = !done && r.date < today;
     const due = !done && r.date <= today;
     const badge = done
       ? '<span class="badge done">已完成</span>'
-      : overdue
-        ? '<span class="badge live">已逾期</span>'
-        : due
-          ? '<span class="badge wait">今日</span>'
-          : '<span class="badge" style="background:#f1f2f6;color:var(--muted)">待到期</span>';
+      : due
+        ? '<span class="badge wait">可复习</span>'
+        : '<span class="badge" style="background:#f1f2f6;color:var(--muted)">待到期</span>';
     const right = done
       ? '<span class="li-h">✅ ' + (r.correct || 0) + " · ❌ " + Math.max(0, (r.total || 0) - (r.correct || 0)) + "</span>"
       : '<button class="btn btn-primary" style="padding:8px 16px" data-action="anti-start" data-id="' + r.id + '">去复习</button>';
     return (
       '<div class="list-item"><div class="li-main">' +
       "<b>" + esc(r.student || "") + (r.course ? " · " + esc(r.course) : "") + "</b>" +
-      "<small>第 " + r.round + " 次 · " + r.date + " · " + n + " 个单词" +
+      "<small>第 " + r.round + " 次 · " + n + " 个单词" +
       (rec ? "" : " · ⚠ 原销课记录已找不到") + "</small></div>" +
       badge + '<div style="margin-left:10px">' + right + "</div></div>"
     );
   }
+  function reviewDateHead(date, count, completed) {
+    const d = new Date(date + "T00:00:00");
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    const week = WEEK_CN[d.getDay()];
+    const today = todayKey();
+    const tomorrow = addDaysKey(today, 1);
+    const label = completed
+      ? "完成于 " + m + "月" + day + "日"
+      : date === today
+        ? "今天"
+        : date === tomorrow
+          ? "明天"
+          : m + "月" + day + "日";
+    const sub = completed || (date !== today && date !== tomorrow) ? week : m + "月" + day + "日 · " + week;
+    const tone = completed ? " completed" : date === today ? " today" : "";
+    return '<div class="review-date-head' + tone + '"><b>' + esc(label) + "</b><span>" + esc(sub) +
+      "</span><i></i><em>" + count + " 条</em></div>";
+  }
+  function reviewDateGroups(list, keyFn) {
+    const groups = [];
+    list.forEach(function (r) {
+      const date = keyFn(r);
+      let g = groups.find(function (x) { return x.date === date; });
+      if (!g) { g = { date: date, items: [] }; groups.push(g); }
+      g.items.push(r);
+    });
+    return groups;
+  }
   function viewReview() {
     const list = visibleReviews();
     const today = todayKey();
-    const pending = list.filter((r) => r.status !== "已完成").sort((a, b) => a.date.localeCompare(b.date) || a.round - b.round);
-    const due = pending.filter((r) => r.date <= today);
+    const pending = list.filter((r) => r.status !== "已完成" && r.date >= today)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.round - b.round);
+    const todayItems = pending.filter((r) => r.date === today);
     const future = pending.filter((r) => r.date > today);
-    const done = list.filter((r) => r.status === "已完成").sort((a, b) => (b.doneAt || b.date).localeCompare(a.doneAt || a.date));
-    const overdue = due.filter((r) => r.date < today).length;
+    const doneAll = list.filter((r) => r.status === "已完成")
+      .sort((a, b) => (b.doneAt || b.date).localeCompare(a.doneAt || a.date) || (b.round || 0) - (a.round || 0));
+    const done = doneAll.slice(0, 50);
+    const futureGroups = reviewDateGroups(future, (r) => r.date);
+    const doneGroups = reviewDateGroups(done, (r) => r.doneAt || r.date);
     return (
       pageHead("抗遗忘") +
       '<div class="card"><div class="stat-grid">' +
-      '<div class="stat"><b>' + (due.length - overdue) + "</b><span>今日待复习</span></div>" +
-      '<div class="stat"><b>' + overdue + "</b><span>已逾期</span></div>" +
-      '<div class="stat"><b>' + done.length + "</b><span>已完成</span></div></div></div>" +
-      '<div class="section-title">待复习（' + due.length + "）</div>" +
-      '<div class="card">' + (due.length ? due.map(antiRow).join("") : '<div class="empty">今天没有需要复习的</div>') + "</div>" +
+      '<div class="stat"><b>' + todayItems.length + "</b><span>今日待复习</span></div>" +
+      '<div class="stat"><b>' + future.length + "</b><span>后续待复习</span></div>" +
+      '<div class="stat"><b>' + doneAll.length + "</b><span>已完成</span></div></div></div>" +
+      '<div class="section-title">今日复习（' + todayItems.length + "）</div>" +
+      (todayItems.length
+        ? '<div class="review-date-group">' + reviewDateHead(today, todayItems.length, false) +
+          '<div class="card">' + todayItems.map(antiRow).join("") + "</div></div>"
+        : '<div class="card"><div class="empty">今天没有需要复习的</div></div>') +
       '<div class="section-title">后续复习（' + future.length + "）</div>" +
-      '<div class="card">' + (future.length ? future.map(antiRow).join("") : '<div class="empty">暂无排期</div>') + "</div>" +
-      '<div class="section-title">已完成（' + done.length + "）</div>" +
-      '<div class="card">' + (done.length ? done.slice(0, 50).map(antiRow).join("") : '<div class="empty">还没有完成记录</div>') + "</div>"
+      (futureGroups.length
+        ? futureGroups.map((g) => '<div class="review-date-group">' + reviewDateHead(g.date, g.items.length, false) +
+          '<div class="card">' + g.items.map(antiRow).join("") + "</div></div>").join("")
+        : '<div class="card"><div class="empty">暂无后续排期</div></div>') +
+      '<div class="section-title">已完成（' + doneAll.length + "）</div>" +
+      (doneGroups.length
+        ? doneGroups.map((g) => '<div class="review-date-group">' + reviewDateHead(g.date, g.items.length, true) +
+          '<div class="card">' + g.items.map(antiRow).join("") + "</div></div>").join("")
+        : '<div class="card"><div class="empty">还没有完成记录</div></div>')
     );
   }
   function currentAntiReview() {
@@ -3238,7 +3412,7 @@
     const r = currentAntiReview();
     if (!r) return;
     const words = (lesson && lesson.all) || [];
-    const wrong = words.filter((w) => lesson.marks[w.w] === false);
+    const wrong = words.filter((w, i) => lesson.marks[String(i)] === false);
     const ok = words.length - wrong.length;
     r.status = "已完成";
     r.doneAt = todayKey();
@@ -3849,6 +4023,35 @@
       forgetRate: newTotal ? Math.round((newForgot / newTotal) * 100) : null,
     };
   }
+  function recordCourses(rec) {
+    if (!rec) return [];
+    let courses = [];
+    if (Array.isArray(rec.courseIds) && rec.courseIds.length) {
+      courses = rec.courseIds.map(courseById).filter(Boolean);
+    }
+    if (!courses.length) {
+      const names = String(rec.course || "").split(/\s*\+\s*/).map((s) => s.trim()).filter(Boolean);
+      courses = names.map((name) => (S.courses || []).find((c) => c.name === name)).filter(Boolean);
+    }
+    if (!courses.length && rec.courseId) {
+      const one = courseById(rec.courseId);
+      if (one) courses = [one];
+    }
+    const seen = {};
+    return courses.filter(function (c) {
+      if (!c || seen[c.id]) return false;
+      seen[c.id] = 1;
+      return true;
+    });
+  }
+  function reportCourseProgress(rec) {
+    if (!rec || !rec.studentId) return null;
+    const courses = recordCourses(rec);
+    const total = courses.reduce((sum, c) => sum + courseSize(c), 0);
+    if (!total) return null;
+    const learned = Math.min(total, courses.reduce((sum, c) => sum + learnedCount(rec.studentId, c.id), 0));
+    return { learned, total, pct: Math.round((learned / total) * 100) };
+  }
   function seededPick(arr, n, seed) {
     const a = arr.slice();
     let x = seed || 1;
@@ -3884,6 +4087,7 @@
   function reportText(rec) {
     const s = recordReportStats(rec);
     const notes = reportMessages(rec, s);
+    const progress = reportCourseProgress(rec);
     return [
       "【学习报告】",
       "学员：" + (rec.student || "学员"),
@@ -3893,6 +4097,7 @@
       "复习正确率：" + (s.reviewRate === null ? "—" : s.reviewRate + "%"),
       "学新单词：" + s.newTotal + " 个",
       "学新遗忘率：" + (s.forgetRate === null ? "—" : s.forgetRate + "%"),
+      "词库进度：" + (progress ? progress.learned + " / " + progress.total + " 词 · " + progress.pct + "%" : "—"),
       "今日寄语：" + notes.join(" "),
     ].join("\n");
   }
@@ -3918,6 +4123,82 @@
       }
     });
   }
+  /* 补全某节课的单词：
+     早先版本里「继续学习」会把一节课拆成多轮，销课记录只存了最后一轮。
+     这里用「该学员在该词库已学的单词 − 其它记录已覆盖的单词 − 本记录已有的单词」反推补齐。 */
+  function repairCandidates(rec) {
+    if (!rec) return [];
+    const recCourseIds = recordCourses(rec).map(function (c) { return c.id; });
+    const cur = {};
+    (rec.words || []).forEach(function (w) { if (w && w.w) cur[w.w] = 1; });
+    const covered = {};
+    (S.records || []).forEach(function (r) {
+      if (!r || r.id === rec.id) return;
+      if (r.studentId !== rec.studentId) return;
+      const otherCourseIds = recordCourses(r).map(function (c) { return c.id; });
+      if (!otherCourseIds.some(function (id) { return recCourseIds.indexOf(id) >= 0; })) return;
+      (r.words || []).forEach(function (w) { if (w && w.w) covered[w.w] = 1; });
+    });
+    const out = [];
+    const seen = {};
+    recordCourses(rec).forEach(function (c) {
+      const set = learnedSet(rec.studentId, c.id);
+      courseWords(c).forEach(function (w) {
+        if (!w || !w.w || !set[w.w] || cur[w.w] || covered[w.w] || seen[w.w]) return;
+        seen[w.w] = 1;
+        out.push(w);
+      });
+    });
+    return out;
+  }
+  function openRepairWords(id) {
+    const rec = (S.records || []).find(function (r) { return r.id === id; });
+    if (!rec) { toast("没有找到这条销课记录"); return; }
+    const add = repairCandidates(rec);
+    if (!add.length) { toast("这节课的单词已经是完整的"); return; }
+    const oldN = (rec.words || []).length;
+    const total = oldN + add.length;
+    const preview = add.slice(0, 8).map(function (w) { return esc(w.w); }).join("、") + (add.length > 8 ? " 等" : "");
+    openModal(
+      '<div class="modal-head">补全这节课的单词 <span class="x" data-action="close-modal">×</span></div>' +
+      '<div class="modal-body">' +
+      '<p style="font-size:13.5px;line-height:1.8;margin:0 0 10px">这条记录里只有 <b>' + oldN +
+      "</b> 个单词，但该学员在这个词库实际已学了 <b>" + total + "</b> 个。</p>" +
+      '<p style="font-size:13px;color:var(--muted);line-height:1.8;margin:0 0 10px">将补上 ' + add.length + " 个：" + preview + "</p>" +
+      '<p style="font-size:12.5px;color:var(--muted);line-height:1.7;margin:0">补全后：学习报告「学新单词」= ' + total +
+      " 个，抗遗忘也会覆盖这些单词。对错按错题本估算（无法还原的按答对计）。</p>" +
+      "</div>" +
+      '<div class="modal-foot"><button class="btn btn-ghost" data-action="close-modal">取消</button>' +
+      '<button class="btn btn-primary" data-action="do-repair-words" data-id="' + rec.id + '">确认补全</button></div>'
+    );
+  }
+  function doRepairWords(id) {
+    const rec = (S.records || []).find(function (r) { return r.id === id; });
+    if (!rec) return;
+    const add = repairCandidates(rec);
+    if (!add.length) { closeModal(); toast("这节课的单词已经是完整的"); return; }
+    const prog = courseProgress(rec.studentId, rec.courseId);
+    const wrongSet = {};
+    (prog.wrong || []).forEach(function (w) { wrongSet[w] = 1; });
+    let addedWrong = 0;
+    add.forEach(function (w) { if (wrongSet[w.w]) addedWrong++; });
+
+    const oldTotal = Number(rec.newTotal != null ? rec.newTotal : rec.total) || 0;
+    const oldCorrect = Number(rec.newCorrect != null ? rec.newCorrect : rec.correct) || 0;
+    const oldForgot = Number(rec.newForgot != null ? rec.newForgot : Math.max(0, oldTotal - oldCorrect)) || 0;
+
+    rec.words = (rec.words || []).concat(add.map(function (w) { return { w: w.w, ph: w.ph, m: w.m }; }));
+    rec.total = rec.words.length;
+    rec.newCount = rec.words.length;
+    rec.newTotal = rec.words.length;
+    rec.newCorrect = oldCorrect + (add.length - addedWrong);
+    rec.newForgot = oldForgot + addedWrong;
+    rec.correct = rec.newCorrect;
+    saveState();
+    closeModal();
+    render();
+    toast("已补全 " + add.length + " 个单词，这节课共 " + rec.words.length + " 个");
+  }
   function openLearningReport(id) {
     const rec = (S.records || []).find((r) => r.id === id);
     if (!rec) { toast("没有找到这条销课记录"); return; }
@@ -3929,6 +4210,7 @@
     const heroLabel = s.reviewRate !== null ? "复习正确率" : "学新正确率";
     const reviewRateText = s.reviewRate === null ? "—" : s.reviewRate + "%";
     const forgetRateText = s.forgetRate === null ? "—" : s.forgetRate + "%";
+    const progress = reportCourseProgress(rec);
     openModal(
       '<div class="report-hero">' +
       '<span class="report-close" data-action="close-modal">×</span>' +
@@ -3948,10 +4230,15 @@
       '<div class="report-stat bad"><span>学新遗忘率</span><b>' + forgetRateText + '</b>' +
       '<div class="report-bar"><i style="width:' + (s.forgetRate || 0) + '%"></i></div></div>' +
       "</div>" +
-      '<div class="report-course"><span>本节课词库</span><b>' + esc(rec.course || rec.subject || "—") + "</b></div>" +
+      '<div class="report-course"><span>本节课词库</span><b>' + esc(rec.course || rec.subject || "—") + "</b>" +
+      (progress ? '<small class="report-course-progress">已学 ' + progress.learned + " / " + progress.total +
+        " 词 · " + progress.pct + "%</small>" : "") + "</div>" +
       '<div class="report-note"><div class="report-note-title">今日寄语</div>' +
       notes.map((n) => "<p>" + esc(n) + "</p>").join("") + "</div>" +
       '<div class="modal-foot report-foot">' +
+      (repairCandidates(rec).length
+        ? '<button class="btn btn-ghost" data-action="repair-words" data-id="' + rec.id + '">补全单词</button>'
+        : "") +
       '<button class="btn btn-ghost" data-action="copy-report" data-id="' + rec.id + '">复制报告</button>' +
       '<button class="btn btn-primary" data-action="print-report" data-id="' + rec.id + '">打印 / 保存 PDF</button>' +
       "</div>",
@@ -3971,6 +4258,7 @@
     const s = recordReportStats(rec);
     const notes = reportMessages(rec, s);
     const cell = "padding:8px 12px;border-bottom:1px solid #ddd;";
+    const progress = reportCourseProgress(rec);
     document.getElementById("printArea").innerHTML =
       "<h1>学习报告</h1>" +
       '<div class="pmeta">' + esc(rec.student || "") + " · " + esc(rec.course || rec.subject || "") +
@@ -3981,6 +4269,8 @@
       "<tr><td style=\"" + cell + "color:#555\">学新单词</td><td style=\"" + cell + "\">" + s.newTotal + " 个</td></tr>" +
       "<tr><td style=\"" + cell + "color:#555\">学新遗忘率</td><td style=\"" + cell + "\">" + (s.forgetRate === null ? "—" : s.forgetRate + "%") + "</td></tr>" +
       "<tr><td style=\"" + cell + "color:#555\">本节课词库</td><td style=\"" + cell + "\">" + esc(rec.course || rec.subject || "—") + "</td></tr>" +
+      "<tr><td style=\"" + cell + "color:#555\">词库进度</td><td style=\"" + cell + "\">" +
+      (progress ? progress.learned + " / " + progress.total + " 词 · " + progress.pct + "%" : "—") + "</td></tr>" +
       "</table>" +
       '<div style="margin-top:16px;padding:12px 14px;border:1px solid #ddd;border-radius:8px;font-size:13px;line-height:1.8">' +
       "<b>今日寄语</b>" + notes.map((n) => "<p style=\"margin:6px 0 0\">" + esc(n) + "</p>").join("") + "</div>" +
@@ -4016,15 +4306,13 @@
   }
   function buildPrintArea(rec, kind) {
     const words = rec.words || [];
-    let inner;
-    if (kind === "cn") inner = '<div class="plist">' + words.map((w, i) => i + 1 + ". " + esc(w.m)).join("<br>") + "</div>";
-    else if (kind === "en") inner = '<div class="plist">' + words.map((w, i) => i + 1 + ". " + esc(w.w)).join("<br>") + "</div>";
-    else if (kind === "ph") inner = '<div class="plist">' + words.map((w, i) => i + 1 + ". " + esc(w.ph)).join("<br>") + "</div>";
-    else {
-      inner = '<table class="ptable">' +
-        words.map((w) => "<tr><td>" + esc(w.w) + "</td><td>" + esc(w.m) + "</td></tr>").join("") +
-        "</table>";
-    }
+    const cells = words.map(function (w) {
+      if (kind === "cn") return "<tr><td></td><td>" + esc(w.m) + "</td></tr>";
+      if (kind === "en") return "<tr><td>" + esc(w.w) + "</td><td></td></tr>";
+      if (kind === "ph") return "<tr><td>" + esc(w.w) + "</td><td>" + esc(w.ph) + "</td></tr>";
+      return "<tr><td>" + esc(w.w) + "</td><td>" + esc(w.m) + "</td></tr>";
+    }).join("");
+    const inner = '<table class="ptable">' + cells + "</table>";
     document.getElementById("printArea").innerHTML =
       "<h1>" + esc(rec.course || "单词表") + "</h1>" +
       '<div class="pmeta">' + esc(rec.student || "") + " · " + (rec.date || "") + " · " +
@@ -4179,7 +4467,7 @@
       }
       case "prep-open": prepCourse(id); break;
       case "prep-back": closeModal(); route.name = "teach"; render(); break;
-      case "teach-exit": prepMode = false; pending = null; route.name = "schedule"; render(); break;
+      case "teach-exit": prepMode = false; pending = null; pendingReviewSummary = null; route.name = "schedule"; render(); break;
       case "course-open":
         if (pending) {
           currentCourseId = id;
@@ -4189,16 +4477,16 @@
           render();
         }
         break;
-      case "teach-back": route.name = "teach"; render(); break;
+      case "teach-back": pendingReviewSummary = null; route.name = "teach"; render(); break;
       case "start-new": startNew(currentCourseId); break;
       case "start-review-course": startReviewCourse(currentCourseId); break;
       /* 学前/学后检测 */
       case "grid-word": {
-        cycleGridWord(w);
+        cycleGridWord(t.dataset.k);
         break;
       }
-      case "grid-ok": markGrid(w, true); break;
-      case "grid-no": markGrid(w, false); break;
+      case "grid-ok": markGrid(t.dataset.k, true, t); break;
+      case "grid-no": markGrid(t.dataset.k, false, t); break;
       case "pretest-auto-wrong": autoMarkWrong(); break;
       case "pretest-submit": submitPretest(); break;
       case "pretest-done": confirmAllKnown(); break;
@@ -4273,6 +4561,7 @@
       case "lesson-quit":
         if (lesson.practice) { exitPractice(); break; }
         lesson = null;
+        pendingReviewSummary = null;
         route.name = currentCourseId ? "course" : "schedule";
         if (route.name === "schedule") pending = null;
         render();
@@ -4338,6 +4627,8 @@
       case "rec-words": openWordExport(S.records.find((r) => r.id === id)); break;
       case "rec-report": openLearningReport(id); break;
       case "copy-report": copyLearningReport(id); break;
+      case "repair-words": openRepairWords(id); break;
+      case "do-repair-words": doRepairWords(id); break;
       case "print-report": printLearningReport(S.records.find((r) => r.id === id)); break;
       case "word-export-one": {
         const rec = S.records.find((r) => r.id === id);
@@ -4354,7 +4645,7 @@
       }
       case "lib-new": openCreateCourse(); break;
       case "coach-new":
-        try { openCoachForm(null); } catch (err) { toast("打开新增教练表单失败：" + (err && err.message ? err.message : err)); }
+        try { openCoachForm(null); } catch (err) { toast("打开账号表单失败：" + (err && err.message ? err.message : err)); }
         break;
       case "coach-edit": openCoachForm(id); break;
       case "coach-view": openCoachView(id); break;
