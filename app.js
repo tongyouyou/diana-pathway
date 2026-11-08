@@ -1570,16 +1570,20 @@
     const sid = studentId || (stu ? stu.id : null);
     const classKey = classId || (pending ? pending.classId : null);
     const priorReview = pendingReviewSummary &&
-      pendingReviewSummary.courseId === courseId &&
       pendingReviewSummary.studentId === sid &&
+      pendingReviewSummary.classId &&
       pendingReviewSummary.classId === classKey
       ? pendingReviewSummary
       : null;
-    pendingReviewSummary = null;
     const done = learnedSet(sid, courseId);
     const pool = courseWords(c).filter((w) => !done[w.w]);
     if (!pool.length) { toast("这个词库的单词已经全部学完啦"); return; }
+    pendingReviewSummary = null;
     logBegin(courseId, sid, classKey);
+    if (priorReview && priorReview.courseId && lessonLog &&
+        lessonLog.courseIds.indexOf(priorReview.courseId) < 0) {
+      lessonLog.courseIds.unshift(priorReview.courseId);
+    }
     lesson = {
       courseId: courseId,
       studentId: sid,
@@ -2230,7 +2234,12 @@
     });
     lessonLog.correct += (words || []).length - (wrong || []).length;
     lessonLog.forgot += (wrong || []).length;
-    if (review) lessonLog.review = review;
+    if (review) {
+      const merged = lessonLog.review || { reviewed: 0, correct: 0 };
+      merged.reviewed = (Number(merged.reviewed) || 0) + (Number(review.reviewed) || 0);
+      merged.correct = (Number(merged.correct) || 0) + (Number(review.correct) || 0);
+      lessonLog.review = merged;
+    }
   }
   function logAggregate(classId) {
     if (!lessonLog || !classId || lessonLog.classId !== classId) return null;
@@ -2350,13 +2359,18 @@
     prog.known = Object.keys(known);
     prog.wrong = Object.keys(wrongSet);
     S.progress[progKey(lesson.studentId, lesson.courseId)] = prog;
-    if (newPoolWords(lesson.studentId, lesson.courseId).length) {
+    if (lesson.classId) {
+      const prior = pendingReviewSummary &&
+        pendingReviewSummary.studentId === lesson.studentId &&
+        pendingReviewSummary.classId === lesson.classId
+        ? pendingReviewSummary
+        : null;
       pendingReviewSummary = {
-        courseId: lesson.courseId,
+        courseId: (prior && prior.courseId) || lesson.courseId,
         studentId: lesson.studentId,
         classId: lesson.classId,
-        reviewed: reviewedWords.length,
-        correct: ok,
+        reviewed: (Number(prior && prior.reviewed) || 0) + reviewedWords.length,
+        correct: (Number(prior && prior.correct) || 0) + ok,
       };
     } else {
       pendingReviewSummary = null;
